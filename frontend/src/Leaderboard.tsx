@@ -29,7 +29,9 @@ export function TyreIcon({ c }: { c: string }) {
       <circle cx="12" cy="12" r="11" fill="#161616" stroke="#000" strokeWidth="1" />
       <circle cx="12" cy="12" r="8.5" fill="none" stroke={color} strokeWidth="2.2" />
       <circle cx="12" cy="12" r="6.2" fill="#2e2e2e" />
-      <text x="12" y="12.5" textAnchor="middle" dominantBaseline="central"
+      {/* baseline esplicita: centro (12) + metà altezza maiuscola (~0.35·font) —
+          dominant-baseline centra l'em box, non la lettera, e sposta la maiuscola */}
+      <text x="12" y="15.2" textAnchor="middle"
         fontSize="9" fontWeight="700" fill={color}>{c}</text>
     </svg>
   )
