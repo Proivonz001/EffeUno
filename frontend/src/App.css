@@ -1,0 +1,66 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: #1c1c1c;
+  flex-wrap: wrap;
+}
+
+header h1 {
+  font-size: 18px;
+  margin: 0;
+  color: #e10600;
+  letter-spacing: 1px;
+}
+
+header select,
+header button {
+  background: #2a2a2a;
+  color: #eee;
+  border: 1px solid #444;
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+header button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+header input[type='range'] {
+  flex: 1;
+  min-width: 120px;
+  accent-color: #e10600;
+}
+
+.clock {
+  font-variant-numeric: tabular-nums;
+  color: #aaa;
+  font-size: 13px;
+}
+
+.error {
+  color: #ff6b6b;
+  padding: 0 16px;
+}
+
+.hint {
+  color: #999;
+  padding: 24px 16px;
+  max-width: 60ch;
+}
+
+.track-map {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+}
