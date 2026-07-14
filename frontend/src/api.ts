@@ -32,6 +32,12 @@ export interface ReplayDriver {
   laps: [number, number, number | null][]
   /** [giro, mescola S/M/H/I/W, giri percorsi con questo treno] */
   tyres: [number, string, number | null][]
+  /** [giro, s1, s2, s3] in secondi */
+  sectors: [number, number | null, number | null, number | null][]
+  /** istanti dei giri cancellati per track limits */
+  tl: number[]
+  /** penalita' dalla direzione gara: [t, etichetta] */
+  penalties: [number, string][]
 }
 
 export interface ReplayData {

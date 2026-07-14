@@ -15,9 +15,6 @@ const TRACK_TINT: Record<number, string> = {
   5: '#6b2020',
 }
 
-const TRAIL_SECONDS = 2.5
-const TRAIL_STEPS = 6
-
 export default function TrackMap({ replay, time }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const timeRef = useRef(time)
@@ -144,30 +141,7 @@ export default function TrackMap({ replay, time }: Props) {
         visible.push({ x, y, i })
       })
 
-      // passata 1: tutte le scie, cosi' non coprono mai i pallini altrui
-      ctx.lineCap = 'round'
-      visible.forEach(({ i }) => {
-        const d = replay.drivers[i]
-        ctx.strokeStyle = colors[i].bg
-        ctx.lineWidth = 2.5 * dpr
-        let prev: [number, number] | null = null
-        for (let k = TRAIL_STEPS; k >= 1; k--) {
-          const tp = posAt(d.points, t - (k * TRAIL_SECONDS) / TRAIL_STEPS)
-          if (tp.stale) { prev = null; continue }
-          const cur = toScreen(tp.x, tp.y)
-          if (prev) {
-            ctx.globalAlpha = 0.45 * (1 - k / (TRAIL_STEPS + 1))
-            ctx.beginPath()
-            ctx.moveTo(prev[0], prev[1])
-            ctx.lineTo(cur[0], cur[1])
-            ctx.stroke()
-          }
-          prev = cur
-        }
-      })
-      ctx.globalAlpha = 1
-
-      // passata 2: pallini con la sigla dentro
+      // pallini con la sigla dentro
       const badges: [number, number][] = []
       visible.forEach(({ x, y, i }) => {
         const d = replay.drivers[i]

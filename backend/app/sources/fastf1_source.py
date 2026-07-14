@@ -1,6 +1,7 @@
 """Implementazione DataSource su FastF1 (dati storici, cache locale)."""
 
 import math
+import re
 from pathlib import Path
 from typing import Any
 
@@ -94,6 +95,42 @@ class FastF1Session(LoadedSession):
                         int(life) if pd.notna(life) else None])
         return out
 
+    def _sectors(self, laps: pd.DataFrame) -> list[list[Any]]:
+        """[giro, s1, s2, s3] in secondi (None se mancante)."""
+        def sec(v: Any) -> float | None:
+            return round(v.total_seconds(), 3) if pd.notna(v) else None
+        return [
+            [int(lap["LapNumber"]), sec(lap["Sector1Time"]),
+             sec(lap["Sector2Time"]), sec(lap["Sector3Time"])]
+            for _, lap in laps.sort_values("LapNumber").iterrows()
+        ]
+
+    def _race_control(self) -> tuple[dict[str, list], dict[str, list]]:
+        """Dai messaggi della direzione gara: (giri cancellati per track
+        limits, penalita') per numero pilota, tempi relativi allo start."""
+        tl: dict[str, list[float]] = {}
+        pen: dict[str, list[list[Any]]] = {}
+        rcm = self._s.race_control_messages
+        if rcm is None or rcm.empty:
+            return tl, pen
+        t0_date = self._s.t0_date
+        for _, m in rcm.iterrows():
+            msg = str(m["Message"]).upper()
+            car = re.search(r"CAR (\d+)", msg)
+            if car is None or pd.isna(m["Time"]):
+                continue
+            num = car.group(1)
+            t = round((m["Time"] - t0_date).total_seconds() - self._t0, 1)
+            if "TRACK LIMITS" in msg and "DELETED" in msg:
+                tl.setdefault(num, []).append(t)
+            elif (pm := re.search(r"(\d+) SECOND TIME PENALTY", msg)):
+                pen.setdefault(num, []).append([t, f"+{pm.group(1)}s"])
+            elif "DRIVE THROUGH" in msg and "PENALTY" in msg:
+                pen.setdefault(num, []).append([t, "DT"])
+            elif ("STOP AND GO" in msg or "STOP/GO" in msg) and "PENALTY" in msg:
+                pen.setdefault(num, []).append([t, "S&G"])
+        return tl, pen
+
     @staticmethod
     def _pit_lane_polyline(drivers: list[dict[str, Any]]) -> list[list[float]]:
         """Percorso della pit lane: la traversata dei box reale (ingresso ->
@@ -112,6 +149,7 @@ class FastF1Session(LoadedSession):
         s = self._s
         drivers = []
         duration = 0.0
+        tl_events, penalties = self._race_control()
         for num in s.drivers:
             pos = s.pos_data.get(num)
             if pos is None or pos.empty:
@@ -146,6 +184,9 @@ class FastF1Session(LoadedSession):
                     "pits": self._pit_windows(drv_laps),
                     "laps": self._lap_timeline(drv_laps),
                     "tyres": self._tyres(drv_laps),
+                    "sectors": self._sectors(drv_laps),
+                    "tl": tl_events.get(num, []),
+                    "penalties": penalties.get(num, []),
                 })
 
         tel = s.laps.pick_fastest().get_telemetry()

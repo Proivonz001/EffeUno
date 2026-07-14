@@ -100,7 +100,7 @@ header input[type='range'] {
 
 /* --- classifica --- */
 .leaderboard {
-  width: 250px;
+  width: 330px;
   overflow-y: auto;
   background: #181818;
   border-right: 1px solid #2a2a2a;
@@ -161,11 +161,64 @@ header input[type='range'] {
   font-variant-numeric: tabular-nums;
 }
 
+.leaderboard .int {
+  text-align: right;
+  color: #999;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+
+/* overtake/DRS disponibile: distacco cerchiato di verde */
+.leaderboard .int .drs {
+  border: 1.5px solid #2ecc71;
+  border-radius: 9px;
+  padding: 1px 5px;
+  color: #2ecc71;
+  font-weight: 700;
+}
+
+.leaderboard .sectors {
+  white-space: nowrap;
+}
+
+.sector-block {
+  display: inline-block;
+  width: 11px;
+  height: 8px;
+  border-radius: 2px;
+  margin-right: 2px;
+}
+
+.leaderboard .badges {
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.leaderboard .badges span {
+  margin-right: 4px;
+}
+
+.leaderboard .fl {
+  color: #b455ff;
+  border: 1px solid #b455ff;
+  border-radius: 3px;
+  padding: 0 3px;
+}
+
+.leaderboard .tl {
+  color: #e67e22;
+}
+
+.leaderboard .pen {
+  color: #fff;
+  background: #c0392b;
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
 .leaderboard .pit {
   color: #f1c40f;
-  font-weight: 700;
-  font-size: 10px;
-  width: 28px;
 }
 
 .leaderboard tr.out {
