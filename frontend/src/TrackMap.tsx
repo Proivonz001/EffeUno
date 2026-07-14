@@ -1,10 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import type { ReplayData } from './api'
 import { teamColor } from './palette'
-
-/** Se il campione piu' vicino e' piu' lontano di cosi', il pilota non viene
- *  disegnato (box, ritiro, buco dati — visti fino a 1.4s in Fase 0). */
-const MAX_STALE_S = 5
+import { contrastColor, inPit, posAt, trackStatusAt } from './replay'
 
 interface Props {
   replay: ReplayData
@@ -12,33 +9,29 @@ interface Props {
   time: number
 }
 
-/** Posizione al tempo t: ricerca binaria + interpolazione lineare
- *  (validata in Fase 0: il dato grezzo a 3.8Hz scatta, la lerp basta). */
-function posAt(points: [number, number, number][], t: number):
-  { x: number; y: number; stale: boolean } {
-  let lo = 0
-  let hi = points.length - 1
-  if (t <= points[0][0]) return { x: points[0][1], y: points[0][2], stale: points[0][0] - t > MAX_STALE_S }
-  if (t >= points[hi][0]) return { x: points[hi][1], y: points[hi][2], stale: t - points[hi][0] > MAX_STALE_S }
-  while (hi - lo > 1) {
-    const mid = (lo + hi) >> 1
-    if (points[mid][0] <= t) lo = mid
-    else hi = mid
-  }
-  const a = points[lo]
-  const b = points[hi]
-  if (b[0] - a[0] > MAX_STALE_S) {
-    // buco dati: niente lerp attraverso il buco, resta sull'ultimo campione
-    return { x: a[1], y: a[2], stale: t - a[0] > MAX_STALE_S }
-  }
-  const f = (t - a[0]) / (b[0] - a[0])
-  return { x: a[1] + (b[1] - a[1]) * f, y: a[2] + (b[2] - a[2]) * f, stale: false }
+/** colore del nastro pista secondo lo stato (verde/gialla/SC/VSC/rossa) */
+const TRACK_TINT: Record<number, string> = {
+  2: '#6b6020', 4: '#6b6020', 6: '#6b6020', 7: '#6b6020',
+  5: '#6b2020',
 }
+
+const TRAIL_SECONDS = 2.5
+const TRAIL_STEPS = 6
 
 export default function TrackMap({ replay, time }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const timeRef = useRef(time)
   timeRef.current = time
+  // zoom/pan utente sopra la trasformazione di fit
+  const viewRef = useRef({ z: 1, px: 0, py: 0 })
+
+  const colors = useMemo(
+    () => replay.drivers.map((d, i) => {
+      const bg = teamColor(d.team, i)
+      return { bg, fg: contrastColor(bg) }
+    }),
+    [replay],
+  )
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -60,8 +53,43 @@ export default function TrackMap({ replay, time }: Props) {
       )
       const ox = (canvas.width - (bounds.x1 - bounds.x0) * s) / 2
       const oy = (canvas.height - (bounds.y1 - bounds.y0) * s) / 2
-      return [ox + (x - bounds.x0) * s, canvas.height - (oy + (y - bounds.y0) * s)]
+      const { z, px, py } = viewRef.current
+      return [
+        (ox + (x - bounds.x0) * s) * z + px,
+        (canvas.height - (oy + (y - bounds.y0) * s)) * z + py,
+      ]
     }
+
+    // --- zoom con rotellina (centrato sul cursore) e pan col trascinamento ---
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      const v = viewRef.current
+      const k = Math.exp(-e.deltaY * 0.0015)
+      const z = Math.min(25, Math.max(1, v.z * k))
+      const applied = z / v.z
+      const mx = e.offsetX * devicePixelRatio
+      const my = e.offsetY * devicePixelRatio
+      v.px = mx - applied * (mx - v.px)
+      v.py = my - applied * (my - v.py)
+      v.z = z
+      if (z <= 1.01) { v.z = 1; v.px = 0; v.py = 0 }
+    }
+    let drag: { x: number; y: number } | null = null
+    const onDown = (e: PointerEvent) => { drag = { x: e.clientX, y: e.clientY } }
+    const onMove = (e: PointerEvent) => {
+      if (!drag) return
+      const v = viewRef.current
+      v.px += (e.clientX - drag.x) * devicePixelRatio
+      v.py += (e.clientY - drag.y) * devicePixelRatio
+      drag = { x: e.clientX, y: e.clientY }
+    }
+    const onUp = () => { drag = null }
+    const onDbl = () => { viewRef.current = { z: 1, px: 0, py: 0 } }
+    canvas.addEventListener('wheel', onWheel, { passive: false })
+    canvas.addEventListener('pointerdown', onDown)
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    canvas.addEventListener('dblclick', onDbl)
 
     let raf = 0
     const draw = () => {
@@ -70,10 +98,13 @@ export default function TrackMap({ replay, time }: Props) {
         canvas.width = canvas.clientWidth * dpr
         canvas.height = canvas.clientHeight * dpr
       }
+      const t = timeRef.current
       ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-      ctx.strokeStyle = '#3a3a3a'
-      ctx.lineWidth = 7 * dpr
+      // nastro pista, tinto secondo la bandiera corrente
+      const status = trackStatusAt(replay.track_status, t)
+      ctx.strokeStyle = TRACK_TINT[status] ?? '#3a3a3a'
+      ctx.lineWidth = 7 * dpr * Math.sqrt(viewRef.current.z)
       ctx.lineJoin = 'round'
       ctx.beginPath()
       replay.track.forEach((p, i) => {
@@ -83,22 +114,77 @@ export default function TrackMap({ replay, time }: Props) {
       })
       ctx.stroke()
 
-      ctx.font = `${10 * dpr}px system-ui`
+      const R = 10 * dpr
+      const badges: [number, number][] = []
       replay.drivers.forEach((d, i) => {
-        const p = posAt(d.points, timeRef.current)
+        const p = posAt(d.points, t)
         if (p.stale) return
+        const { bg, fg } = colors[i]
+
+        // scia: posizioni recenti, sfumate
+        ctx.strokeStyle = bg
+        ctx.lineWidth = 2.5 * dpr
+        ctx.lineCap = 'round'
+        let prev: [number, number] | null = null
+        for (let k = TRAIL_STEPS; k >= 1; k--) {
+          const tp = posAt(d.points, t - (k * TRAIL_SECONDS) / TRAIL_STEPS)
+          if (tp.stale) { prev = null; continue }
+          const cur = toScreen(tp.x, tp.y)
+          if (prev) {
+            ctx.globalAlpha = 0.45 * (1 - k / (TRAIL_STEPS + 1))
+            ctx.beginPath()
+            ctx.moveTo(prev[0], prev[1])
+            ctx.lineTo(cur[0], cur[1])
+            ctx.stroke()
+          }
+          prev = cur
+        }
+        ctx.globalAlpha = 1
+
+        // pallino con la sigla dentro
         const [x, y] = toScreen(p.x, p.y)
-        ctx.fillStyle = teamColor(d.team, i)
+        ctx.fillStyle = bg
         ctx.beginPath()
-        ctx.arc(x, y, 5 * dpr, 0, Math.PI * 2)
+        ctx.arc(x, y, R, 0, Math.PI * 2)
         ctx.fill()
-        ctx.fillText(d.abbr, x + 7 * dpr, y - 5 * dpr)
+        ctx.strokeStyle = 'rgba(0,0,0,0.55)'
+        ctx.lineWidth = 1.5 * dpr
+        ctx.stroke()
+        ctx.fillStyle = fg
+        ctx.font = `700 ${7 * dpr}px system-ui`
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(d.abbr, x, y + 0.5 * dpr)
+
+        if (inPit(d.pits, t)) badges.push([x, y])
       })
+
+      // badge BOX in un secondo passaggio, sempre sopra i pallini
+      badges.forEach(([x, y]) => {
+        const w = 26 * dpr
+        const h = 11 * dpr
+        ctx.fillStyle = '#f1c40f'
+        ctx.beginPath()
+        ctx.roundRect(x - w / 2, y - R - h - 3 * dpr, w, h, 3 * dpr)
+        ctx.fill()
+        ctx.fillStyle = '#111'
+        ctx.font = `700 ${7 * dpr}px system-ui`
+        ctx.fillText('BOX', x, y - R - h / 2 - 2.5 * dpr)
+      })
+      ctx.textAlign = 'start'
+      ctx.textBaseline = 'alphabetic'
       raf = requestAnimationFrame(draw)
     }
     raf = requestAnimationFrame(draw)
-    return () => cancelAnimationFrame(raf)
-  }, [replay])
+    return () => {
+      cancelAnimationFrame(raf)
+      canvas.removeEventListener('wheel', onWheel)
+      canvas.removeEventListener('pointerdown', onDown)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      canvas.removeEventListener('dblclick', onDbl)
+    }
+  }, [replay, colors])
 
-  return <canvas ref={canvasRef} className="track-map" />
+  return <canvas ref={canvasRef} className="track-map" title="rotellina: zoom — trascina: sposta — doppio click: reset" />
 }

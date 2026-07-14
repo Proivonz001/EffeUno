@@ -26,12 +26,39 @@ export interface ReplayDriver {
   team: string
   /** campioni grezzi [t (s dallo start), x, y] in 1/10 di metro */
   points: [number, number, number][]
+  /** finestre pit lane [t ingresso, t uscita | null se mai uscito] */
+  pits: [number, number | null][]
+  /** timeline giri [numero, t inizio, t fine | null] per posizioni e gap */
+  laps: [number, number, number | null][]
 }
 
 export interface ReplayData {
   duration_s: number
   track: [number, number][]
+  /** [t, codice]: 1 verde, 2 gialla, 4 SC, 5 rossa, 6 VSC, 7 VSC in rientro */
+  track_status: [number, number][]
   drivers: ReplayDriver[]
+}
+
+export interface LapInfo {
+  driver: string
+  num: string
+  lap: number
+  time_s: number | null
+  compound: string | null
+  accurate: boolean
+}
+
+export interface LapTelemetry {
+  driver: string
+  lap: number
+  distance: number[]
+  speed: number[]
+  throttle: number[]
+  brake: boolean[]
+  gear: number[]
+  x: number[]
+  y: number[]
 }
 
 async function json<T>(url: string): Promise<T> {
@@ -50,6 +77,13 @@ export const getSessionInfo = (year: number, event: string, session: string) =>
 
 export const getReplay = (year: number, event: string, session: string) =>
   json<ReplayData>(`/api/replay/${sessionPath(year, event, session)}`)
+
+export const getLaps = (year: number, event: string, session: string) =>
+  json<LapInfo[]>(`/api/laps/${sessionPath(year, event, session)}`)
+
+export const getLapTelemetry = (
+  year: number, event: string, session: string, driver: string, lap: number,
+) => json<LapTelemetry>(`/api/telemetry/${sessionPath(year, event, session)}/${driver}/${lap}`)
 
 /** Polla lo stato finche' la sessione non e' pronta (il primo load puo' richiedere secondi). */
 export async function waitForSession(

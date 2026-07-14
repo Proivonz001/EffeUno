@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import './App.css'
 import { getEvents, getReplay, waitForSession } from './api'
 import type { EventInfo, ReplayData } from './api'
+import Compare from './Compare'
+import Leaderboard from './Leaderboard'
+import { STATUS_INFO, trackStatusAt } from './replay'
 import TrackMap from './TrackMap'
 
 const YEAR = 2025
@@ -17,10 +20,12 @@ function fmtClock(s: number): string {
 export default function App() {
   const [events, setEvents] = useState<EventInfo[]>([])
   const [event, setEvent] = useState('Italian Grand Prix')
+  const [loadedEvent, setLoadedEvent] = useState<string | null>(null)
   const [phase, setPhase] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const [loadingFor, setLoadingFor] = useState(0)
   const [error, setError] = useState('')
   const [replay, setReplay] = useState<ReplayData | null>(null)
+  const [tab, setTab] = useState<'replay' | 'compare'>('replay')
 
   const [time, setTime] = useState(0)
   const [playing, setPlaying] = useState(true)
@@ -37,9 +42,11 @@ export default function App() {
     setLoadingFor(0)
     setError('')
     setReplay(null)
+    setTab('replay')
     try {
       await waitForSession(YEAR, event, 'R', setLoadingFor)
       setReplay(await getReplay(YEAR, event, 'R'))
+      setLoadedEvent(event)
       setTime(0)
       setPhase('ready')
     } catch (e) {
@@ -67,6 +74,8 @@ export default function App() {
     return () => cancelAnimationFrame(raf)
   }, [])
 
+  const status = replay ? STATUS_INFO[trackStatusAt(replay.track_status, time)] : null
+
   return (
     <div className="app">
       <header>
@@ -82,6 +91,16 @@ export default function App() {
           {phase === 'loading' ? `Caricamento… ${loadingFor.toFixed(0)}s` : 'Carica gara'}
         </button>
         {replay && (
+          <nav className="tabs">
+            <button className={tab === 'replay' ? 'active' : ''} onClick={() => setTab('replay')}>
+              Replay
+            </button>
+            <button className={tab === 'compare' ? 'active' : ''} onClick={() => setTab('compare')}>
+              Confronto giri
+            </button>
+          </nav>
+        )}
+        {replay && tab === 'replay' && (
           <>
             <button onClick={() => setPlaying(p => !p)}>
               {playing ? '⏸' : '▶'}
@@ -100,6 +119,11 @@ export default function App() {
               onChange={e => setTime(Number(e.target.value))}
             />
             <span className="clock">{fmtClock(time)} / {fmtClock(replay.duration_s)}</span>
+            {status && (
+              <span className="flag" style={{ background: status.color }}>
+                {status.label}
+              </span>
+            )}
           </>
         )}
       </header>
@@ -108,7 +132,15 @@ export default function App() {
         <p className="hint">Scegli una gara {YEAR} e premi «Carica gara». Il primo
           caricamento scarica i dati via FastF1 e può richiedere qualche decina di secondi.</p>
       )}
-      {replay && <TrackMap replay={replay} time={time} />}
+      {replay && tab === 'replay' && (
+        <div className="main">
+          <Leaderboard replay={replay} time={time} />
+          <TrackMap replay={replay} time={time} />
+        </div>
+      )}
+      {replay && loadedEvent && tab === 'compare' && (
+        <Compare year={YEAR} event={loadedEvent} />
+      )}
     </div>
   )
 }

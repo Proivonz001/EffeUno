@@ -49,6 +49,37 @@ class FastF1Session(LoadedSession):
             "drivers": drivers,
         }
 
+    def _pit_windows(self, laps: pd.DataFrame) -> list[list[float | None]]:
+        """Finestre [ingresso, uscita] pit lane in secondi dallo start.
+        PitInTime chiude il giro N, PitOutTime apre il giro N+1."""
+        windows: list[list[float | None]] = []
+        pit_in: float | None = None
+        for _, lap in laps.sort_values("LapNumber").iterrows():
+            out = lap["PitOutTime"]
+            if pit_in is not None and pd.notna(out):
+                windows.append([round(pit_in, 1), round(out.total_seconds() - self._t0, 1)])
+                pit_in = None
+            pin = lap["PitInTime"]
+            if pd.notna(pin):
+                pit_in = pin.total_seconds() - self._t0
+        if pit_in is not None:  # entrato ai box e mai uscito (ritiro/fine gara)
+            windows.append([round(pit_in, 1), None])
+        return windows
+
+    def _lap_timeline(self, laps: pd.DataFrame) -> list[list[float | None]]:
+        """[numero giro, t inizio, t fine] per calcolare posizioni e gap."""
+        out: list[list[float | None]] = []
+        for _, lap in laps.sort_values("LapNumber").iterrows():
+            start = lap["LapStartTime"]
+            if pd.isna(start):
+                continue
+            t_start = start.total_seconds() - self._t0
+            lt = lap["LapTime"]
+            t_end = t_start + lt.total_seconds() if pd.notna(lt) else None
+            out.append([int(lap["LapNumber"]), round(t_start, 3),
+                        round(t_end, 3) if t_end is not None else None])
+        return out
+
     def replay(self) -> dict[str, Any]:
         s = self._s
         drivers = []
@@ -58,7 +89,8 @@ class FastF1Session(LoadedSession):
             if pos is None or pos.empty:
                 continue
             t = pos["SessionTime"].dt.total_seconds() - self._t0
-            window = pos[(t >= 0) & (pos["Status"] == "OnTrack")]
+            # tutti i campioni dallo start, pit lane inclusa (i pit stop si vedono)
+            window = pos[t >= 0]
             if window.empty:
                 continue
             info = s.get_driver(num)
@@ -68,7 +100,7 @@ class FastF1Session(LoadedSession):
                 window["SessionTime"].dt.total_seconds() - self._t0,
                 window["X"], window["Y"],
             ):
-                if math.isnan(xi) or math.isnan(yi):
+                if math.isnan(xi) or math.isnan(yi) or (xi == 0 and yi == 0):
                     continue
                 # filtra i glitch "teleport" visti in Fase 0
                 if px is not None and math.hypot(xi - px, yi - py) > MAX_PLAUSIBLE_JUMP:
@@ -77,16 +109,32 @@ class FastF1Session(LoadedSession):
                 points.append([round(ti, 3), round(xi, 1), round(yi, 1)])
             if points:
                 duration = max(duration, points[-1][0])
+                drv_laps = s.laps[s.laps["DriverNumber"] == num]
                 drivers.append({
                     "num": num,
                     "abbr": _clean(info["Abbreviation"]),
                     "team": _clean(info["TeamName"]),
                     "points": points,
+                    "pits": self._pit_windows(drv_laps),
+                    "laps": self._lap_timeline(drv_laps),
                 })
 
         tel = s.laps.pick_fastest().get_telemetry()
         track = [[round(x, 1), round(y, 1)] for x, y in zip(tel["X"], tel["Y"])]
-        return {"duration_s": round(duration, 1), "track": track, "drivers": drivers}
+
+        # stato pista: 1 verde, 2 gialla, 4 SC, 5 rossa, 6 VSC, 7 VSC in rientro
+        ts = s.track_status
+        track_status = [
+            [round(row["Time"].total_seconds() - self._t0, 1), int(row["Status"])]
+            for _, row in ts.iterrows()
+        ]
+
+        return {
+            "duration_s": round(duration, 1),
+            "track": track,
+            "drivers": drivers,
+            "track_status": track_status,
+        }
 
     def laps(self) -> list[dict[str, Any]]:
         out = []

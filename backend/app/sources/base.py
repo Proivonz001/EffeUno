@@ -20,8 +20,11 @@ class LoadedSession(ABC):
     def replay(self) -> dict[str, Any]:
         """Posizioni X/Y di tutti i piloti, tempi relativi allo start.
 
-        Formato: {t0, duration_s, track: [[x,y],...],
-                  drivers: [{num, abbr, team, points: [[t,x,y],...]}]}
+        Formato: {duration_s, track: [[x,y],...],
+                  track_status: [[t, codice],...],
+                  drivers: [{num, abbr, team, points: [[t,x,y],...],
+                             pits: [[t_in,t_out],...],
+                             laps: [[n, t_inizio, t_fine],...]}]}
         """
 
     @abstractmethod
