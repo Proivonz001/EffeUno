@@ -153,6 +153,10 @@ header input[type='range'] {
   white-space: nowrap;
 }
 
+.tyre-icon {
+  vertical-align: middle;
+}
+
 .leaderboard .tyre .age {
   color: #888;
   font-weight: 400;

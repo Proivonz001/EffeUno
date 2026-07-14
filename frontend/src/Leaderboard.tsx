@@ -20,6 +20,21 @@ function fmtLapTime(s: number): string {
   return `${m}:${(s - m * 60).toFixed(3).padStart(6, '0')}`
 }
 
+/** Ruota F1 stilizzata: gomma nera, anello colorato per mescola sulla
+ *  spalla (come le marcature reali), iniziale della mescola al centro. */
+export function TyreIcon({ c }: { c: string }) {
+  const color = TYRE_COLORS[c] ?? '#ccc'
+  return (
+    <svg className="tyre-icon" viewBox="0 0 24 24" width="18" height="18" aria-label={`mescola ${c}`}>
+      <circle cx="12" cy="12" r="11" fill="#161616" stroke="#000" strokeWidth="1" />
+      <circle cx="12" cy="12" r="8.5" fill="none" stroke={color} strokeWidth="2.2" />
+      <circle cx="12" cy="12" r="6.2" fill="#2e2e2e" />
+      <text x="12" y="12.5" textAnchor="middle" dominantBaseline="central"
+        fontSize="9" fontWeight="700" fill={color}>{c}</text>
+    </svg>
+  )
+}
+
 export default function Leaderboard({ replay, time }: Props) {
   // ricalcolo a mezzo secondo, non a 60fps: basta e avanza per una classifica
   const qt = Math.floor(time * 2) / 2
@@ -56,7 +71,7 @@ export default function Leaderboard({ replay, time }: Props) {
                 <td className="tyre" title="mescola · giri percorsi con questo treno">
                   {r.tyre && !r.out && (
                     <>
-                      <span style={{ color: TYRE_COLORS[r.tyre.c] ?? '#ccc' }}>{r.tyre.c}</span>
+                      <TyreIcon c={r.tyre.c} />
                       <span className="age">{r.tyre.age ?? ''}</span>
                     </>
                   )}
