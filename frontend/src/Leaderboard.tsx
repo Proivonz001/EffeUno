@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import type { ReplayData } from './api'
 import { teamColor } from './palette'
-import { contrastColor, standingsAt } from './replay'
+import { contrastColor, standingsAt, TYRE_COLORS } from './replay'
 
 interface Props {
   replay: ReplayData
@@ -33,6 +33,14 @@ export default function Leaderboard({ replay, time }: Props) {
                 </td>
                 <td className="lap">G{r.lap}</td>
                 <td className="gap">{r.gapText}</td>
+                <td className="tyre" title="mescola · giri percorsi con questo treno">
+                  {r.tyre && !r.out && (
+                    <>
+                      <span style={{ color: TYRE_COLORS[r.tyre.c] ?? '#ccc' }}>{r.tyre.c}</span>
+                      <span className="age">{r.tyre.age ?? ''}</span>
+                    </>
+                  )}
+                </td>
                 <td className="pit">{r.inPit && !r.out ? 'BOX' : ''}</td>
               </tr>
             )

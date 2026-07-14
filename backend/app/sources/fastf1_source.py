@@ -16,6 +16,9 @@ CACHE_DIR = ROOT / "fastf1_cache"
 # Oltre, il campione e' un glitch di posizione ("teleport") e va scartato.
 MAX_PLAUSIBLE_JUMP = 1200  # 120 m
 
+COMPOUND_LETTER = {"SOFT": "S", "MEDIUM": "M", "HARD": "H",
+                   "INTERMEDIATE": "I", "WET": "W"}
+
 
 def _clean(v: Any) -> Any:
     """NaN/NaT -> None per la serializzazione JSON."""
@@ -80,6 +83,31 @@ class FastF1Session(LoadedSession):
                         round(t_end, 3) if t_end is not None else None])
         return out
 
+    def _tyres(self, laps: pd.DataFrame) -> list[list[Any]]:
+        """[giro, mescola (S/M/H/I/W), giri percorsi con questo treno].
+        Nota: l'usura reale non e' nel feed; l'eta' in giri e' il proxy standard."""
+        out: list[list[Any]] = []
+        for _, lap in laps.sort_values("LapNumber").iterrows():
+            compound = COMPOUND_LETTER.get(str(lap["Compound"]).upper(), "?")
+            life = lap["TyreLife"]
+            out.append([int(lap["LapNumber"]), compound,
+                        int(life) if pd.notna(life) else None])
+        return out
+
+    @staticmethod
+    def _pit_lane_polyline(drivers: list[dict[str, Any]]) -> list[list[float]]:
+        """Percorso della pit lane: la traversata dei box reale (ingresso ->
+        sosta -> uscita) con piu' campioni tra tutti i pit stop della gara."""
+        best: list[list[float]] = []
+        for d in drivers:
+            for t_in, t_out in d["pits"]:
+                if t_out is None or t_out - t_in > 90:  # ritiro, non sosta
+                    continue
+                seg = [[p[1], p[2]] for p in d["points"] if t_in - 1 <= p[0] <= t_out + 1]
+                if len(seg) > len(best):
+                    best = seg
+        return best
+
     def replay(self) -> dict[str, Any]:
         s = self._s
         drivers = []
@@ -117,6 +145,7 @@ class FastF1Session(LoadedSession):
                     "points": points,
                     "pits": self._pit_windows(drv_laps),
                     "laps": self._lap_timeline(drv_laps),
+                    "tyres": self._tyres(drv_laps),
                 })
 
         tel = s.laps.pick_fastest().get_telemetry()
@@ -132,6 +161,7 @@ class FastF1Session(LoadedSession):
         return {
             "duration_s": round(duration, 1),
             "track": track,
+            "pit_lane": self._pit_lane_polyline(drivers),
             "drivers": drivers,
             "track_status": track_status,
         }

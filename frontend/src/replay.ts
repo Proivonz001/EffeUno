@@ -87,6 +87,35 @@ export function contrastColor(hex: string): string {
   return 0.299 * r + 0.587 * g + 0.114 * b > 145 ? '#111' : '#fff'
 }
 
+export const TYRE_COLORS: Record<string, string> = {
+  S: '#ff3b30', M: '#f1c40f', H: '#e8e8e8', I: '#2ecc71', W: '#3498db',
+}
+
+const lapsEnd = (d: ReplayDriver): number => {
+  const last = d.laps[d.laps.length - 1]
+  return last ? last[2] ?? last[1] : 0
+}
+
+/** Per ogni pilota, l'istante da cui considerarlo ritirato
+ *  (Infinity se arriva in fondo). Ritirato = ha smesso di girare ben prima
+ *  della fine; i doppiati no: fanno meno giri ma la loro timeline arriva
+ *  comunque a fine gara. */
+export function retirementTimes(replay: ReplayData): number[] {
+  const totalLaps = Math.max(...replay.drivers.map(d => d.laps.length ? d.laps[d.laps.length - 1][0] : 0))
+  const raceEnd = Math.max(...replay.drivers.map(lapsEnd))
+  return replay.drivers.map(d => {
+    const lapCount = d.laps.length ? d.laps[d.laps.length - 1][0] : 0
+    const retired = lapCount < totalLaps && lapsEnd(d) + 120 < raceEnd
+    return retired ? lapsEnd(d) + 60 : Infinity
+  })
+}
+
+/** Mescola ed eta' (in giri) del treno montato al giro dato. */
+export function tyreAt(d: ReplayDriver, lap: number): { c: string; age: number | null } | null {
+  const entry = d.tyres.find(e => e[0] === lap)
+  return entry ? { c: entry[1], age: entry[2] } : null
+}
+
 export interface Standing {
   driver: ReplayDriver
   pos: number
@@ -95,24 +124,17 @@ export interface Standing {
   gapText: string
   inPit: boolean
   out: boolean
+  tyre: { c: string; age: number | null } | null
 }
 
 /** Classifica al tempo t, calcolata dal progresso sulla timeline dei giri. */
 export function standingsAt(replay: ReplayData, t: number): Standing[] {
-  const lapsEnd = (d: ReplayDriver): number => {
-    const last = d.laps[d.laps.length - 1]
-    return last ? last[2] ?? last[1] : 0
-  }
   const totalLaps = Math.max(...replay.drivers.map(d => d.laps.length ? d.laps[d.laps.length - 1][0] : 0))
-  const raceEnd = Math.max(...replay.drivers.map(lapsEnd))
-  const rows = replay.drivers.map(driver => {
+  const retireAt = retirementTimes(replay)
+  const rows = replay.drivers.map((driver, i) => {
     const progress = progressAt(driver.laps, t)
     const lastT = driver.points.length ? driver.points[driver.points.length - 1][0] : 0
-    const lapCount = driver.laps.length ? driver.laps[driver.laps.length - 1][0] : 0
-    // ritirato: ha smesso di girare ben prima della fine (i doppiati no:
-    // fanno meno giri ma la loro timeline arriva comunque a fine gara)
-    const retired = lapCount < totalLaps && lapsEnd(driver) + 120 < raceEnd
-    const out = (retired && t > lapsEnd(driver) + 60) || (t > lastT + 30 && progress < totalLaps)
+    const out = t > retireAt[i] || (t > lastT + 30 && progress < totalLaps)
     return { driver, progress, out }
   })
   rows.sort((a, b) => {
@@ -133,14 +155,16 @@ export function standingsAt(replay: ReplayData, t: number): Standing[] {
       const tLeader = timeAtProgress(leader.driver.laps, r.progress)
       gapText = tLeader === null ? '—' : `+${Math.max(0, t - tLeader).toFixed(1)}`
     }
+    const lap = Math.min(Math.floor(r.progress) + 1, totalLaps)
     return {
       driver: r.driver,
       pos: i + 1,
-      lap: Math.min(Math.floor(r.progress) + 1, totalLaps),
+      lap,
       progress: r.progress,
       gapText,
       inPit: inPit(r.driver.pits, t),
       out: r.out,
+      tyre: tyreAt(r.driver, lap),
     }
   })
 }

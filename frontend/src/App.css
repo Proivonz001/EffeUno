@@ -100,7 +100,7 @@ header input[type='range'] {
 
 /* --- classifica --- */
 .leaderboard {
-  width: 230px;
+  width: 250px;
   overflow-y: auto;
   background: #181818;
   border-right: 1px solid #2a2a2a;
@@ -127,9 +127,11 @@ header input[type='range'] {
 
 .leaderboard .tag {
   display: inline-block;
+  width: 36px;
+  text-align: center;
   font-weight: 700;
   font-size: 11px;
-  padding: 2px 5px;
+  padding: 2px 0;
   border-radius: 3px;
   letter-spacing: 0.5px;
 }
@@ -142,6 +144,20 @@ header input[type='range'] {
 .leaderboard .gap {
   color: #ccc;
   text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.leaderboard .tyre {
+  font-weight: 700;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.leaderboard .tyre .age {
+  color: #888;
+  font-weight: 400;
+  font-size: 10px;
+  margin-left: 2px;
   font-variant-numeric: tabular-nums;
 }
 

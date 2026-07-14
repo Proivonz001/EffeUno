@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import type { ReplayData } from './api'
 import { teamColor } from './palette'
-import { contrastColor, inPit, posAt, trackStatusAt } from './replay'
+import { contrastColor, inPit, posAt, retirementTimes, trackStatusAt } from './replay'
 
 interface Props {
   replay: ReplayData
@@ -32,6 +32,7 @@ export default function TrackMap({ replay, time }: Props) {
     }),
     [replay],
   )
+  const retireAt = useMemo(() => retirementTimes(replay), [replay])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -114,17 +115,41 @@ export default function TrackMap({ replay, time }: Props) {
       })
       ctx.stroke()
 
+      // pit lane (traversata reale dei box) — sopra il nastro, che a molti
+      // circuiti corre attaccato alla corsia e la coprirebbe
+      if (replay.pit_lane.length > 1) {
+        ctx.strokeStyle = '#6e6e6e'
+        ctx.lineWidth = 2 * dpr * Math.sqrt(viewRef.current.z)
+        ctx.lineJoin = 'round'
+        ctx.setLineDash([5 * dpr, 4 * dpr])
+        ctx.beginPath()
+        replay.pit_lane.forEach((p, i) => {
+          const [x, y] = toScreen(p[0], p[1])
+          if (i === 0) ctx.moveTo(x, y)
+          else ctx.lineTo(x, y)
+        })
+        ctx.stroke()
+        ctx.setLineDash([])
+      }
+
       const R = 10 * dpr
-      const badges: [number, number][] = []
+      // piloti visibili: i ritirati spariscono dalla mappa (in classifica
+      // restano, marcati OUT)
+      const visible: { x: number; y: number; i: number }[] = []
       replay.drivers.forEach((d, i) => {
+        if (t > retireAt[i]) return
         const p = posAt(d.points, t)
         if (p.stale) return
-        const { bg, fg } = colors[i]
+        const [x, y] = toScreen(p.x, p.y)
+        visible.push({ x, y, i })
+      })
 
-        // scia: posizioni recenti, sfumate
-        ctx.strokeStyle = bg
+      // passata 1: tutte le scie, cosi' non coprono mai i pallini altrui
+      ctx.lineCap = 'round'
+      visible.forEach(({ i }) => {
+        const d = replay.drivers[i]
+        ctx.strokeStyle = colors[i].bg
         ctx.lineWidth = 2.5 * dpr
-        ctx.lineCap = 'round'
         let prev: [number, number] | null = null
         for (let k = TRAIL_STEPS; k >= 1; k--) {
           const tp = posAt(d.points, t - (k * TRAIL_SECONDS) / TRAIL_STEPS)
@@ -139,10 +164,14 @@ export default function TrackMap({ replay, time }: Props) {
           }
           prev = cur
         }
-        ctx.globalAlpha = 1
+      })
+      ctx.globalAlpha = 1
 
-        // pallino con la sigla dentro
-        const [x, y] = toScreen(p.x, p.y)
+      // passata 2: pallini con la sigla dentro
+      const badges: [number, number][] = []
+      visible.forEach(({ x, y, i }) => {
+        const d = replay.drivers[i]
+        const { bg, fg } = colors[i]
         ctx.fillStyle = bg
         ctx.beginPath()
         ctx.arc(x, y, R, 0, Math.PI * 2)
@@ -184,7 +213,7 @@ export default function TrackMap({ replay, time }: Props) {
       window.removeEventListener('pointerup', onUp)
       canvas.removeEventListener('dblclick', onDbl)
     }
-  }, [replay, colors])
+  }, [replay, colors, retireAt])
 
   return <canvas ref={canvasRef} className="track-map" title="rotellina: zoom — trascina: sposta — doppio click: reset" />
 }

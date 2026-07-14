@@ -30,11 +30,15 @@ export interface ReplayDriver {
   pits: [number, number | null][]
   /** timeline giri [numero, t inizio, t fine | null] per posizioni e gap */
   laps: [number, number, number | null][]
+  /** [giro, mescola S/M/H/I/W, giri percorsi con questo treno] */
+  tyres: [number, string, number | null][]
 }
 
 export interface ReplayData {
   duration_s: number
   track: [number, number][]
+  /** traversata reale della pit lane (ingresso -> box -> uscita) */
+  pit_lane: [number, number][]
   /** [t, codice]: 1 verde, 2 gialla, 4 SC, 5 rossa, 6 VSC, 7 VSC in rientro */
   track_status: [number, number][]
   drivers: ReplayDriver[]
