@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Fase 0 — test animazione replay</title>
+<style>
+  body { margin: 0; background: #111; color: #eee; font: 14px/1.4 system-ui, sans-serif; }
+  #bar { display: flex; gap: 16px; align-items: center; padding: 10px 14px; background: #1c1c1c; flex-wrap: wrap; }
+  #bar label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+  canvas { display: block; width: 100vw; height: calc(100vh - 46px); }
+  #clock { font-variant-numeric: tabular-nums; color: #aaa; margin-left: auto; }
+  select, input[type=range] { accent-color: #e10600; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <strong id="title">…</strong>
+  <label><input type="checkbox" id="interp" checked> interpolazione</label>
+  <label>velocità <select id="speed">
+    <option value="0.5">0.5×</option>
+    <option value="1" selected>1×</option>
+    <option value="2">2×</option>
+  </select></label>
+  <label><input type="checkbox" id="playing" checked> play</label>
+  <span id="clock">0.0s</span>
+</div>
+<canvas id="cv"></canvas>
+<script>
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const PALETTE = ['#ff4d4d','#ffa64d','#ffe14d','#a3ff4d','#4dffa3','#4dffff','#4da3ff','#7a4dff',
+                 '#d94dff','#ff4db8','#ff8080','#ffc080','#f0f080','#80f080','#80f0f0','#80a0ff',
+                 '#c080ff','#ff80d0','#c0c0c0','#f0f0f0'];
+let data, bounds, t = 0, lastFrame;
+
+fetch('data/replay.json').then(r => r.json()).then(d => {
+  data = d;
+  document.getElementById('title').textContent = d.event + ' — partenza';
+  const xs = d.track.map(p => p[0]), ys = d.track.map(p => p[1]);
+  bounds = { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+  lastFrame = performance.now();
+  requestAnimationFrame(frame);
+});
+
+function resize() {
+  cv.width = cv.clientWidth * devicePixelRatio;
+  cv.height = cv.clientHeight * devicePixelRatio;
+}
+addEventListener('resize', resize);
+
+function toScreen(x, y) {
+  const pad = 40 * devicePixelRatio;
+  const sx = (cv.width - 2 * pad) / (bounds.x1 - bounds.x0);
+  const sy = (cv.height - 2 * pad) / (bounds.y1 - bounds.y0);
+  const s = Math.min(sx, sy);
+  const ox = (cv.width - (bounds.x1 - bounds.x0) * s) / 2;
+  const oy = (cv.height - (bounds.y1 - bounds.y0) * s) / 2;
+  return [ox + (x - bounds.x0) * s, cv.height - (oy + (y - bounds.y0) * s)];
+}
+
+// Posizione al tempo t: campione precedente (raw) o interpolazione lineare
+function posAt(points, t, interp) {
+  let lo = 0, hi = points.length - 1;
+  if (t <= points[0][0]) return points[0];
+  if (t >= points[hi][0]) return points[hi];
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (points[mid][0] <= t) lo = mid; else hi = mid;
+  }
+  const a = points[lo], b = points[hi];
+  if (!interp) return a;
+  const f = (t - a[0]) / (b[0] - a[0]);
+  return [t, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+}
+
+function frame(now) {
+  if (cv.width !== cv.clientWidth * devicePixelRatio) resize();
+  const dt = (now - lastFrame) / 1000;
+  lastFrame = now;
+  if (document.getElementById('playing').checked) {
+    t += dt * parseFloat(document.getElementById('speed').value);
+    if (t > data.window_s) t = 0;
+  }
+  document.getElementById('clock').textContent = t.toFixed(1) + 's';
+  const interp = document.getElementById('interp').checked;
+
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.strokeStyle = '#3a3a3a';
+  ctx.lineWidth = 8 * devicePixelRatio;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  data.track.forEach((p, i) => {
+    const [x, y] = toScreen(p[0], p[1]);
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  });
+  ctx.stroke();
+
+  ctx.font = `${10 * devicePixelRatio}px system-ui`;
+  data.drivers.forEach((d, i) => {
+    const p = posAt(d.points, t, interp);
+    const [x, y] = toScreen(p[1], p[2]);
+    ctx.fillStyle = PALETTE[i % PALETTE.length];
+    ctx.beginPath();
+    ctx.arc(x, y, 5 * devicePixelRatio, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillText(d.abbr, x + 8 * devicePixelRatio, y - 6 * devicePixelRatio);
+  });
+  requestAnimationFrame(frame);
+}
+</script>
+</body>
+</html>
