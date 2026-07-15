@@ -100,18 +100,40 @@ header input[type='range'] {
 
 /* --- classifica --- */
 .leaderboard {
-  width: 460px;
+  width: 510px;
   flex-shrink: 0;
   overflow-y: auto;
   background: #181818;
   border-right: 1px solid #2a2a2a;
-  padding: 6px 0;
+  padding: 0 0 6px;
 }
 
 .leaderboard table {
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
+}
+
+.leaderboard th {
+  position: sticky;
+  top: 0;
+  background: #181818;
+  color: #666;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  text-align: left;
+  padding: 5px 6px 3px;
+  border-bottom: 1px solid #2a2a2a;
+  white-space: nowrap;
+}
+
+.leaderboard th.gap,
+.leaderboard th.int,
+.leaderboard th.lap-time,
+.leaderboard th.pit-count {
+  text-align: right;
 }
 
 .leaderboard td {
@@ -223,6 +245,14 @@ header input[type='range'] {
   font-weight: 700;
 }
 
+.leaderboard .pit-count {
+  width: 24px;
+  text-align: right;
+  color: #999;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+
 /* giri cancellati per track limits: una tacca per giro, slot fisso */
 .leaderboard .tl-slot {
   width: 32px;
@@ -244,21 +274,108 @@ header input[type='range'] {
   font-weight: 700;
 }
 
-.leaderboard .badges {
+/* penalita': chip a larghezza fissa, non balla al cambiare del testo */
+.leaderboard .pen-slot {
+  width: 38px;
   white-space: nowrap;
+}
+
+.leaderboard .pen {
+  display: inline-block;
+  width: 34px;
+  text-align: center;
+  color: #fff;
+  background: #c0392b;
+  border-radius: 3px;
+  padding: 1px 0;
   font-size: 10px;
   font-weight: 700;
 }
 
-.leaderboard .pen {
-  color: #fff;
-  background: #c0392b;
-  border-radius: 3px;
-  padding: 1px 4px;
-}
-
 .leaderboard tr.out {
   opacity: 0.4;
+}
+
+/* --- feed direzione gara / team radio --- */
+.feed {
+  width: 300px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  background: #181818;
+  border-left: 1px solid #2a2a2a;
+  padding: 0 8px 6px;
+  font-size: 11px;
+}
+
+.feed-header {
+  position: sticky;
+  top: 0;
+  background: #181818;
+  color: #666;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 5px 0 3px;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.feed-empty {
+  color: #666;
+  padding: 8px 0;
+}
+
+.feed-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 0;
+  border-bottom: 1px solid #202020;
+}
+
+.feed-time {
+  flex: none;
+  width: 46px;
+  color: #666;
+  font-variant-numeric: tabular-nums;
+}
+
+.feed-flag {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  align-self: center;
+}
+
+.feed-msg {
+  color: #bbb;
+  line-height: 1.35;
+  min-width: 0;
+}
+
+.feed .tag {
+  display: inline-block;
+  width: 36px;
+  text-align: center;
+  font-weight: 700;
+  border-radius: 3px;
+  letter-spacing: 0.5px;
+  flex: none;
+}
+
+.feed-play {
+  background: none;
+  border: 1px solid #444;
+  color: #ddd;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 10px;
+  padding: 1px 8px;
+}
+
+.feed-play:hover {
+  border-color: #888;
 }
 
 .track-map {

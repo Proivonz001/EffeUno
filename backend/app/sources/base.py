@@ -35,6 +35,11 @@ class LoadedSession(ABC):
     def lap_telemetry(self, driver: str, lap: int) -> dict[str, Any]:
         """Canali telemetria di un giro, allineati per distanza."""
 
+    def feed(self) -> dict[str, Any]:
+        """Feed cronologico: messaggi direzione gara e clip team radio.
+        Facoltativo: le sorgenti che non lo hanno restituiscono liste vuote."""
+        return {"race_control": [], "radio": []}
+
 
 class DataSource(ABC):
     """Fabbrica di sessioni. L'implementazione FastF1 legge lo storico;

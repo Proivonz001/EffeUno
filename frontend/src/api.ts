@@ -50,6 +50,24 @@ export interface ReplayData {
   drivers: ReplayDriver[]
 }
 
+export interface RaceControlMsg {
+  t: number
+  category: string | null
+  flag: string | null
+  message: string | null
+}
+
+export interface RadioClip {
+  t: number
+  num: string
+  url: string
+}
+
+export interface FeedData {
+  race_control: RaceControlMsg[]
+  radio: RadioClip[]
+}
+
 export interface LapInfo {
   driver: string
   num: string
@@ -92,6 +110,9 @@ export const getReplay = (year: number, event: string, session: string) =>
 
 export const getLaps = (year: number, event: string, session: string) =>
   json<LapInfo[]>(`/api/laps/${sessionPath(year, event, session)}`)
+
+export const getFeed = (year: number, event: string, session: string) =>
+  json<FeedData>(`/api/feed/${sessionPath(year, event, session)}`)
 
 export const getLapTelemetry = (
   year: number, event: string, session: string, driver: string, lap: number,

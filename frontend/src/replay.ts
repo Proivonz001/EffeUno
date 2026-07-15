@@ -269,6 +269,8 @@ export interface Standing {
   inPit: boolean
   out: boolean
   tyre: { c: string; age: number | null } | null
+  /** pit stop effettuati finora */
+  pitCount: number
   /** giri cancellati per track limits finora */
   tlCount: number
   /** ultima penalita' ricevuta finora */
@@ -333,6 +335,7 @@ export function standingsAt(replay: ReplayData, t: number): Standing[] {
       inPit: pit,
       out: r.out,
       tyre: tyreAt(r.driver, lap),
+      pitCount: r.driver.pits.filter(p => p[0] <= t).length,
       tlCount: r.driver.tl.filter(x => x <= t).length,
       penalty: pens.length ? pens[pens.length - 1][1] : null,
     }

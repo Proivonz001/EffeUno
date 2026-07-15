@@ -51,6 +51,21 @@ export default function Leaderboard({ replay, time }: Props) {
   return (
     <div className="leaderboard">
       <table>
+        <thead>
+          <tr>
+            <th className="pos">P</th>
+            <th></th>
+            <th className="gap">Gap</th>
+            <th className="int">Int.</th>
+            <th>Settori</th>
+            <th className="lap-time">Ultimo</th>
+            <th className="lap-time">Migliore</th>
+            <th>Gomma</th>
+            <th className="pit-count">Pit</th>
+            <th>TL</th>
+            <th>Pen.</th>
+          </tr>
+        </thead>
         <tbody>
           {rows.map(r => {
             const bg = teamColor(r.driver.team, colorIndex.get(r.driver.num) ?? 0)
@@ -71,14 +86,6 @@ export default function Leaderboard({ replay, time }: Props) {
                   ) : r.interval !== null && (
                     <span className={r.drs ? 'drs' : ''}>+{r.interval.toFixed(1)}</span>
                   ))}
-                </td>
-                <td className="tyre" title="mescola · giri percorsi con questo treno">
-                  {r.tyre && !r.out && (
-                    <>
-                      <TyreIcon c={r.tyre.c} />
-                      <span className="age">{r.tyre.age ?? ''}</span>
-                    </>
-                  )}
                 </td>
                 <td className="sectors" title="settori del giro in corso — viola: best assoluto, verde: best personale, giallo: piu' lento">
                   {!r.out && [0, 1, 2].map(i => {
@@ -102,12 +109,23 @@ export default function Leaderboard({ replay, time }: Props) {
                     <span className={lt.fastest ? 'ob' : ''}>{fmtLapTime(lt.best)}</span>
                   )}
                 </td>
+                <td className="tyre" title="mescola · giri percorsi con questo treno">
+                  {r.tyre && !r.out && (
+                    <>
+                      <TyreIcon c={r.tyre.c} />
+                      <span className="age">{r.tyre.age ?? ''}</span>
+                    </>
+                  )}
+                </td>
+                <td className="pit-count" title="pit stop effettuati">
+                  {!r.out && r.pitCount > 0 ? r.pitCount : ''}
+                </td>
                 <td className="tl-slot" title={r.tlCount > 0 ? `${r.tlCount} giri cancellati per track limits` : undefined}>
                   {!r.out && r.tlCount > 0 && (r.tlCount <= 6
                     ? Array.from({ length: r.tlCount }, (_, i) => <i key={i} className="tl-notch" />)
                     : <span className="tl-text">{r.tlCount}</span>)}
                 </td>
-                <td className="badges">
+                <td className="pen-slot">
                   {r.penalty && <span className="pen" title="penalita' dalla direzione gara">{r.penalty}</span>}
                 </td>
               </tr>

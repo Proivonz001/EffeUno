@@ -60,6 +60,14 @@ def laps(year: int, event: str, session: str):
     return entry.session.laps()
 
 
+@app.get("/api/feed/{year}/{event}/{session}")
+def feed(year: int, event: str, session: str):
+    entry = _ready_session(year, event, session)
+    if entry.status == "loading":
+        raise HTTPException(409, detail="session still loading")
+    return entry.session.feed()
+
+
 @app.get("/api/telemetry/{year}/{event}/{session}/{driver}/{lap}")
 def lap_telemetry(year: int, event: str, session: str, driver: str, lap: int):
     entry = _ready_session(year, event, session)

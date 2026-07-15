@@ -1,5 +1,6 @@
 """Implementazione DataSource su FastF1 (dati storici, cache locale)."""
 
+import json
 import math
 import re
 from pathlib import Path
@@ -220,6 +221,77 @@ class FastF1Session(LoadedSession):
                 "accurate": bool(lap["IsAccurate"]),
             })
         return out
+
+    def feed(self) -> dict[str, Any]:
+        """Messaggi direzione gara + clip audio team radio, tempi dallo start.
+
+        I team radio non passano da fastf1.core: arrivano dallo stesso
+        servizio livetiming statico (endpoint TeamRadio), come clip mp3
+        pubbliche servite da livetiming.formula1.com."""
+        t0_date = self._s.t0_date
+
+        def rel(ts: Any) -> float:
+            return round((ts - t0_date).total_seconds() - self._t0, 1)
+
+        race_control: list[dict[str, Any]] = []
+        rcm = self._s.race_control_messages
+        if rcm is not None and not rcm.empty:
+            for _, m in rcm.iterrows():
+                if pd.isna(m["Time"]):
+                    continue
+                race_control.append({
+                    "t": rel(m["Time"]),
+                    "category": _clean(m["Category"]),
+                    "flag": _clean(m["Flag"]),
+                    "message": _clean(m["Message"]),
+                })
+
+        radio: list[dict[str, Any]] = []
+        try:
+            import warnings
+
+            import fastf1.api as f1api
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")  # fastf1.api "private" warning
+                data = f1api.fetch_page(self._s.api_path, "team_radio")
+        except Exception:
+            data = None  # sessione senza team radio: il feed resta solo testuale
+        base = "https://livetiming.formula1.com" + self._s.api_path
+        seen: set[str] = set()
+        chunks = data if isinstance(data, list) else [(None, data)] if data else []
+        for entry in chunks:
+            # ogni riga jsonStream e' [timestamp, payload]; il payload puo'
+            # arrivare gia' parsato oppure come stringa JSON: non deve mai
+            # interrompere il feed intero
+            chunk = entry[1] if isinstance(entry, (list, tuple)) and len(entry) > 1 else entry
+            if isinstance(chunk, str):
+                try:
+                    chunk = json.loads(chunk)
+                except ValueError:
+                    continue
+            if not isinstance(chunk, dict):
+                continue
+            caps = chunk.get("Captures", [])
+            if isinstance(caps, dict):
+                # aggiornamenti incrementali del jsonStream: dict indicizzato
+                # {"2": {...}} invece della lista completa
+                caps = list(caps.values())
+            for cap in caps:
+                try:
+                    path = cap.get("Path")
+                    if not path or path in seen:
+                        continue
+                    seen.add(path)
+                    utc = pd.to_datetime(cap["Utc"], utc=True).tz_localize(None)
+                    radio.append({
+                        "t": rel(utc),
+                        "num": str(cap.get("RacingNumber", "")),
+                        "url": base + path,
+                    })
+                except Exception:
+                    continue
+        radio.sort(key=lambda r: r["t"])
+        return {"race_control": race_control, "radio": radio}
 
     def lap_telemetry(self, driver: str, lap: int) -> dict[str, Any]:
         laps = self._s.laps.pick_drivers(driver)

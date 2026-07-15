@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import './App.css'
-import { getEvents, getReplay, waitForSession } from './api'
-import type { EventInfo, ReplayData } from './api'
+import { getEvents, getFeed, getReplay, waitForSession } from './api'
+import type { EventInfo, FeedData, ReplayData } from './api'
 import Compare from './Compare'
+import Feed from './Feed'
 import Leaderboard from './Leaderboard'
 import { STATUS_INFO, trackStatusAt } from './replay'
 import TrackMap from './TrackMap'
@@ -32,6 +33,7 @@ export default function App() {
   const [loadingFor, setLoadingFor] = useState(0)
   const [error, setError] = useState('')
   const [replay, setReplay] = useState<ReplayData | null>(null)
+  const [feedData, setFeedData] = useState<FeedData | null>(null)
   const [tab, setTab] = useState<'replay' | 'compare'>('replay')
 
   const [time, setTime] = useState(0)
@@ -60,6 +62,11 @@ export default function App() {
     try {
       await waitForSession(year, event, 'R', setLoadingFor)
       setReplay(await getReplay(year, event, 'R'))
+      // il feed non e' vitale: se manca (es. niente team radio) si va avanti
+      setFeedData(null)
+      getFeed(year, event, 'R')
+        .then(setFeedData)
+        .catch(() => setFeedData({ race_control: [], radio: [] }))
       setLoaded({ year, event })
       setTime(0)
       setPhase('ready')
@@ -153,6 +160,7 @@ export default function App() {
         <div className="main">
           <Leaderboard replay={replay} time={time} />
           <TrackMap replay={replay} time={time} />
+          {feedData && <Feed feed={feedData} replay={replay} time={time} />}
         </div>
       )}
       {replay && loaded && tab === 'compare' && (
