@@ -225,9 +225,13 @@ class FastF1Session(LoadedSession):
         laps = self._s.laps.pick_drivers(driver)
         row = laps[laps["LapNumber"] == lap].iloc[0]
         tel = row.get_telemetry().add_distance()
+        # tempo dall'inizio del giro, per il delta cumulativo tra due giri
+        t = tel["Time"].dt.total_seconds()
+        t = t - t.iloc[0]
         return {
             "driver": driver,
             "lap": lap,
+            "time": [round(v, 3) for v in t],
             "distance": [round(v, 1) for v in tel["Distance"]],
             "speed": [round(v, 1) for v in tel["Speed"]],
             "throttle": [round(v, 1) for v in tel["Throttle"]],

@@ -62,6 +62,8 @@ export interface LapInfo {
 export interface LapTelemetry {
   driver: string
   lap: number
+  /** tempo dall'inizio del giro, per il delta cumulativo */
+  time: number[]
   distance: number[]
   speed: number[]
   throttle: number[]
