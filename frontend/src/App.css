@@ -101,6 +101,7 @@ header input[type='range'] {
 /* --- classifica --- */
 .leaderboard {
   width: 330px;
+  flex-shrink: 0;
   overflow-y: auto;
   background: #181818;
   border-right: 1px solid #2a2a2a;
@@ -232,6 +233,10 @@ header input[type='range'] {
 .track-map {
   flex: 1;
   width: 100%;
+  /* l'attributo width del canvas (impostato dal loop di disegno) non deve
+     diventare larghezza minima del flex item: senza questo, al restringersi
+     della finestra il canvas schiaccia la classifica */
+  min-width: 0;
   min-height: 0;
   cursor: grab;
 }
@@ -309,6 +314,10 @@ header input[type='range'] {
 .chart .grid {
   stroke: #2a2a2a;
   stroke-width: 1;
+}
+
+.chart .grid.zero {
+  stroke: #4a4a4a;
 }
 
 .axis-note {
