@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import './App.css'
 import { getEvents, getFeed, getReplay, waitForSession } from './api'
 import type { EventInfo, FeedData, ReplayData } from './api'
+import Charts from './Charts'
 import Compare from './Compare'
 import Feed from './Feed'
 import Leaderboard from './Leaderboard'
@@ -17,6 +18,11 @@ const YEARS = Array.from(
 )
 const SPEEDS = [1, 2, 5, 10, 30]
 
+type SessionCode = 'R' | 'S' | 'Q'
+const SESSION_LABELS: Record<SessionCode, string> = {
+  R: 'Gara', S: 'Sprint', Q: 'Qualifica',
+}
+
 function fmtClock(s: number): string {
   const h = Math.floor(s / 3600)
   const m = Math.floor((s % 3600) / 60)
@@ -28,13 +34,15 @@ export default function App() {
   const [year, setYear] = useState(2025)
   const [events, setEvents] = useState<EventInfo[]>([])
   const [event, setEvent] = useState('Italian Grand Prix')
-  const [loaded, setLoaded] = useState<{ year: number; event: string } | null>(null)
+  const [session, setSession] = useState<SessionCode>('R')
+  const [loaded, setLoaded] = useState<{ year: number; event: string; session: SessionCode } | null>(null)
+  const [focus, setFocus] = useState<string | null>(null)
   const [phase, setPhase] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const [loadingFor, setLoadingFor] = useState(0)
   const [error, setError] = useState('')
   const [replay, setReplay] = useState<ReplayData | null>(null)
   const [feedData, setFeedData] = useState<FeedData | null>(null)
-  const [tab, setTab] = useState<'replay' | 'compare'>('replay')
+  const [tab, setTab] = useState<'replay' | 'charts' | 'compare'>('replay')
 
   const [time, setTime] = useState(0)
   const [playing, setPlaying] = useState(true)
@@ -60,14 +68,15 @@ export default function App() {
     setReplay(null)
     setTab('replay')
     try {
-      await waitForSession(year, event, 'R', setLoadingFor)
-      setReplay(await getReplay(year, event, 'R'))
+      await waitForSession(year, event, session, setLoadingFor)
+      setReplay(await getReplay(year, event, session))
       // il feed non e' vitale: se manca (es. niente team radio) si va avanti
       setFeedData(null)
-      getFeed(year, event, 'R')
+      getFeed(year, event, session)
         .then(setFeedData)
-        .catch(() => setFeedData({ race_control: [], radio: [] }))
-      setLoaded({ year, event })
+        .catch(() => setFeedData({ race_control: [], radio: [], weather: [] }))
+      setLoaded({ year, event, session })
+      setFocus(null)
       setTime(0)
       setPhase('ready')
     } catch (e) {
@@ -97,6 +106,22 @@ export default function App() {
 
   const status = replay ? STATUS_INFO[trackStatusAt(replay.track_status, time)] : null
 
+  // il weekend selezionato ha la Sprint?
+  const hasSprint = events.find(e => e.name === event)?.format.includes('sprint') ?? false
+  useEffect(() => {
+    if (!hasSprint && session === 'S') setSession('R')
+  }, [hasSprint, session])
+
+  // campione meteo piu' recente al tempo del replay
+  let wx: FeedData['weather'][number] | null = null
+  if (feedData?.weather.length) {
+    for (const s of feedData.weather) {
+      if (s[0] <= time) wx = s
+      else break
+    }
+    wx = wx ?? feedData.weather[0]
+  }
+
   return (
     <div className="app">
       <header>
@@ -111,14 +136,24 @@ export default function App() {
             </option>
           ))}
         </select>
+        <select value={session} onChange={e => setSession(e.target.value as SessionCode)}>
+          {(['R', ...(hasSprint ? ['S'] : []), 'Q'] as SessionCode[]).map(s => (
+            <option key={s} value={s}>{SESSION_LABELS[s]}</option>
+          ))}
+        </select>
         <button onClick={load} disabled={phase === 'loading'}>
-          {phase === 'loading' ? `Caricamento… ${loadingFor.toFixed(0)}s` : 'Carica gara'}
+          {phase === 'loading' ? `Caricamento… ${loadingFor.toFixed(0)}s` : 'Carica'}
         </button>
-        {replay && (
+        {replay && loaded && (
           <nav className="tabs">
             <button className={tab === 'replay' ? 'active' : ''} onClick={() => setTab('replay')}>
               Replay
             </button>
+            {loaded.session !== 'Q' && (
+              <button className={tab === 'charts' ? 'active' : ''} onClick={() => setTab('charts')}>
+                Grafici
+              </button>
+            )}
             <button className={tab === 'compare' ? 'active' : ''} onClick={() => setTab('compare')}>
               Confronto giri
             </button>
@@ -148,6 +183,17 @@ export default function App() {
                 {status.label}
               </span>
             )}
+            {wx && (
+              <span
+                className="weather"
+                title={`aria ${wx[1]}° · pista ${wx[2]}° · vento ${wx[4]} m/s da ${wx[5]}°${wx[3] ? ' · pioggia' : ''}`}
+              >
+                {wx[1].toFixed(0)}°<em>aria</em> {wx[2].toFixed(0)}°<em>pista</em>
+                <span className="wind" style={{ transform: `rotate(${(wx[5] + 180) % 360}deg)` }}>↑</span>
+                {wx[4].toFixed(0)}<em>m/s</em>
+                {wx[3] && <span className="rain">PIOGGIA</span>}
+              </span>
+            )}
           </>
         )}
       </header>
@@ -156,15 +202,22 @@ export default function App() {
         <p className="hint">Scegli stagione e gara, poi premi «Carica gara». Il primo
           caricamento scarica i dati via FastF1 e può richiedere qualche decina di secondi.</p>
       )}
-      {replay && tab === 'replay' && (
+      {replay && loaded && tab === 'replay' && (
         <div className="main">
-          <Leaderboard replay={replay} time={time} />
-          <TrackMap replay={replay} time={time} />
-          {feedData && <Feed feed={feedData} replay={replay} time={time} />}
+          <Leaderboard
+            replay={replay} time={time}
+            mode={loaded.session === 'Q' ? 'quali' : 'race'}
+            focus={focus} onFocus={setFocus}
+          />
+          <TrackMap replay={replay} time={time} focus={focus} onFocus={setFocus} />
+          {feedData && <Feed feed={feedData} replay={replay} time={time} focus={focus} />}
         </div>
       )}
+      {replay && loaded && tab === 'charts' && (
+        <Charts key={`${loaded.year}-${loaded.event}-${loaded.session}`} replay={replay} />
+      )}
       {replay && loaded && tab === 'compare' && (
-        <Compare year={loaded.year} event={loaded.event} />
+        <Compare year={loaded.year} event={loaded.event} session={loaded.session} />
       )}
     </div>
   )

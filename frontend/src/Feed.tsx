@@ -7,6 +7,8 @@ interface Props {
   feed: FeedData
   replay: ReplayData
   time: number
+  /** se impostato, mostra solo radio e messaggi che riguardano quel pilota */
+  focus: string | null
 }
 
 type Item =
@@ -33,7 +35,7 @@ function fmtClock(s: number): string {
   return `${neg ? '−' : ''}${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
 }
 
-export default function Feed({ feed, replay, time }: Props) {
+export default function Feed({ feed, replay, time, focus }: Props) {
   // un aggiornamento al secondo basta per un feed testuale
   const qt = Math.floor(time)
   const [playingUrl, setPlayingUrl] = useState<string | null>(null)
@@ -55,10 +57,16 @@ export default function Feed({ feed, replay, time }: Props) {
     [replay],
   )
 
-  // visibili: gia' accaduti al tempo del replay, i piu' recenti in alto
+  // visibili: gia' accaduti al tempo del replay, i piu' recenti in alto;
+  // col focus attivo restano solo radio e messaggi che citano quel pilota
   const visible = useMemo(
-    () => items.filter(it => it.t <= qt).slice(-80).reverse(),
-    [items, qt],
+    () => items
+      .filter(it => it.t <= qt)
+      .filter(it => focus === null || (it.kind === 'radio'
+        ? it.num === focus
+        : it.text.includes(`CAR ${focus} `)))
+      .slice(-80).reverse(),
+    [items, qt, focus],
   )
 
   function toggle(url: string) {
@@ -76,7 +84,10 @@ export default function Feed({ feed, replay, time }: Props) {
 
   return (
     <div className="feed">
-      <div className="feed-header">Direzione gara · Team radio</div>
+      <div className="feed-header">
+        Direzione gara · Team radio
+        {focus && <span className="feed-focus"> — solo {drivers.get(focus)?.abbr ?? focus}</span>}
+      </div>
       {visible.length === 0 && <p className="feed-empty">Nessun comunicato finora.</p>}
       {visible.map((it, i) => (
         <div className="feed-item" key={`${it.t}-${i}`}>

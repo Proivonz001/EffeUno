@@ -7,6 +7,9 @@ interface Props {
   replay: ReplayData
   /** tempo corrente del replay in secondi, gestito dal genitore */
   time: number
+  /** pilota evidenziato (numero), null = nessuno */
+  focus: string | null
+  onFocus: (num: string | null) => void
 }
 
 /** colore del nastro pista secondo lo stato (verde/gialla/SC/VSC/rossa) */
@@ -15,10 +18,16 @@ const TRACK_TINT: Record<number, string> = {
   5: '#6b2020',
 }
 
-export default function TrackMap({ replay, time }: Props) {
+export default function TrackMap({ replay, time, focus, onFocus }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const timeRef = useRef(time)
   timeRef.current = time
+  const focusRef = useRef(focus)
+  focusRef.current = focus
+  const onFocusRef = useRef(onFocus)
+  onFocusRef.current = onFocus
+  // posizioni a schermo dell'ultimo frame, per il click sui pallini
+  const dotsRef = useRef<{ x: number; y: number; num: string }[]>([])
   // zoom/pan utente sopra la trasformazione di fit
   const viewRef = useRef({ z: 1, px: 0, py: 0 })
 
@@ -73,21 +82,33 @@ export default function TrackMap({ replay, time }: Props) {
       if (z <= 1.01) { v.z = 1; v.px = 0; v.py = 0 }
     }
     let drag: { x: number; y: number } | null = null
-    const onDown = (e: PointerEvent) => { drag = { x: e.clientX, y: e.clientY } }
+    let moved = 0
+    const onDown = (e: PointerEvent) => { drag = { x: e.clientX, y: e.clientY }; moved = 0 }
     const onMove = (e: PointerEvent) => {
       if (!drag) return
       const v = viewRef.current
+      moved += Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y)
       v.px += (e.clientX - drag.x) * devicePixelRatio
       v.py += (e.clientY - drag.y) * devicePixelRatio
       drag = { x: e.clientX, y: e.clientY }
     }
     const onUp = () => { drag = null }
+    // click (non trascinamento) su un pallino: focus sul pilota
+    const onClick = (e: MouseEvent) => {
+      if (moved > 4) return
+      const mx = e.offsetX * devicePixelRatio
+      const my = e.offsetY * devicePixelRatio
+      const R = 12 * devicePixelRatio
+      const hit = dotsRef.current.find(d => Math.hypot(d.x - mx, d.y - my) <= R)
+      onFocusRef.current(hit && hit.num !== focusRef.current ? hit.num : null)
+    }
     const onDbl = () => { viewRef.current = { z: 1, px: 0, py: 0 } }
     canvas.addEventListener('wheel', onWheel, { passive: false })
     canvas.addEventListener('pointerdown', onDown)
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
     canvas.addEventListener('dblclick', onDbl)
+    canvas.addEventListener('click', onClick)
 
     let raf = 0
     const draw = () => {
@@ -111,6 +132,71 @@ export default function TrackMap({ replay, time }: Props) {
         else ctx.lineTo(x, y)
       })
       ctx.stroke()
+
+      // zone DRS (solo pre-2026): tratto del nastro evidenziato in verde
+      const ribbon = ctx.lineWidth
+      ctx.strokeStyle = '#2e6b45'
+      replay.drs_zones.forEach(zone => {
+        ctx.beginPath()
+        zone.forEach((p, i) => {
+          const [x, y] = toScreen(p[0], p[1])
+          if (i === 0) ctx.moveTo(x, y)
+          else ctx.lineTo(x, y)
+        })
+        ctx.stroke()
+      })
+      ctx.lineWidth = ribbon
+
+      // confini settore: tacca perpendicolare al nastro con etichetta
+      const tick = (px: number, py: number, qx: number, qy: number,
+        label: string | null, checkers: boolean) => {
+        const [x0, y0] = toScreen(px, py)
+        const [x1, y1] = toScreen(qx, qy)
+        const a = Math.atan2(y1 - y0, x1 - x0)
+        ctx.save()
+        ctx.translate(x0, y0)
+        ctx.rotate(a)
+        if (checkers) {
+          // striscia a scacchi del traguardo, perpendicolare alla pista
+          const sq = ribbon / 4
+          for (let r = -4; r < 4; r++) {
+            for (let c = 0; c < 2; c++) {
+              ctx.fillStyle = (r + c) % 2 === 0 ? '#ddd' : '#222'
+              ctx.fillRect(c * sq - sq, r * sq, sq, sq)
+            }
+          }
+        } else {
+          ctx.strokeStyle = '#8a8a8a'
+          ctx.lineWidth = 1.5 * dpr
+          ctx.beginPath()
+          ctx.moveTo(0, -ribbon * 0.8)
+          ctx.lineTo(0, ribbon * 0.8)
+          ctx.stroke()
+        }
+        if (label) {
+          ctx.fillStyle = '#777'
+          ctx.font = `600 ${8 * dpr}px system-ui`
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'middle'
+          ctx.fillText(label, 0, -ribbon * 0.8 - 7 * dpr)
+        }
+        ctx.restore()
+      }
+      if (replay.track.length > 1) {
+        tick(replay.track[0][0], replay.track[0][1],
+          replay.track[1][0], replay.track[1][1], null, true)
+      }
+      replay.sector_marks.forEach((m, i) => {
+        // direzione locale del nastro: punto di pista piu' vicino al confine
+        let best = 0
+        let bestD = Infinity
+        replay.track.forEach((p, j) => {
+          const d = (p[0] - m[0]) ** 2 + (p[1] - m[1]) ** 2
+          if (d < bestD) { bestD = d; best = j }
+        })
+        const next = replay.track[Math.min(best + 1, replay.track.length - 1)]
+        tick(m[0], m[1], next[0], next[1], `S${i + 2}`, false)
+      })
 
       // pit lane (traversata reale dei box) — sopra il nastro, che a molti
       // circuiti corre attaccato alla corsia e la coprirebbe
@@ -143,9 +229,11 @@ export default function TrackMap({ replay, time }: Props) {
 
       // pallini con la sigla dentro
       const badges: [number, number][] = []
+      dotsRef.current = []
       visible.forEach(({ x, y, i }) => {
         const d = replay.drivers[i]
         const { bg, fg } = colors[i]
+        dotsRef.current.push({ x, y, num: d.num })
         ctx.fillStyle = bg
         ctx.beginPath()
         ctx.arc(x, y, R, 0, Math.PI * 2)
@@ -153,6 +241,13 @@ export default function TrackMap({ replay, time }: Props) {
         ctx.strokeStyle = 'rgba(0,0,0,0.55)'
         ctx.lineWidth = 1.5 * dpr
         ctx.stroke()
+        if (d.num === focusRef.current) {
+          ctx.strokeStyle = '#fff'
+          ctx.lineWidth = 2 * dpr
+          ctx.beginPath()
+          ctx.arc(x, y, R + 2.5 * dpr, 0, Math.PI * 2)
+          ctx.stroke()
+        }
         ctx.fillStyle = fg
         ctx.font = `700 ${7 * dpr}px system-ui`
         ctx.textAlign = 'center'
@@ -186,6 +281,7 @@ export default function TrackMap({ replay, time }: Props) {
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
       canvas.removeEventListener('dblclick', onDbl)
+      canvas.removeEventListener('click', onClick)
     }
   }, [replay, colors, retireAt])
 

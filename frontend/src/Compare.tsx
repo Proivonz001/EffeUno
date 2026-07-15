@@ -5,6 +5,7 @@ import type { LapInfo, LapTelemetry } from './api'
 interface Props {
   year: number
   event: string
+  session: string
 }
 
 interface Sel {
@@ -159,7 +160,7 @@ function LapPicker({ laps, sel, onChange, color }: {
   )
 }
 
-export default function Compare({ year, event }: Props) {
+export default function Compare({ year, event, session }: Props) {
   const [laps, setLaps] = useState<LapInfo[]>([])
   const [selA, setSelA] = useState<Sel | null>(null)
   const [selB, setSelB] = useState<Sel | null>(null)
@@ -168,7 +169,7 @@ export default function Compare({ year, event }: Props) {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    getLaps(year, event, 'R').then(ls => {
+    getLaps(year, event, session).then(ls => {
       setLaps(ls)
       // default: i due giri validi piu' veloci di piloti diversi
       const valid = ls.filter(l => l.time_s !== null && l.accurate)
@@ -178,21 +179,21 @@ export default function Compare({ year, event }: Props) {
       if (a) setSelA({ driver: a.driver, lap: a.lap })
       if (b) setSelB({ driver: b.driver, lap: b.lap })
     }).catch(e => setError(String(e)))
-  }, [year, event])
+  }, [year, event, session])
 
   useEffect(() => {
     if (!selA) return
     setTelA(null)
-    getLapTelemetry(year, event, 'R', selA.driver, selA.lap)
+    getLapTelemetry(year, event, session, selA.driver, selA.lap)
       .then(setTelA).catch(e => setError(String(e)))
-  }, [year, event, selA])
+  }, [year, event, session, selA])
 
   useEffect(() => {
     if (!selB) return
     setTelB(null)
-    getLapTelemetry(year, event, 'R', selB.driver, selB.lap)
+    getLapTelemetry(year, event, session, selB.driver, selB.lap)
       .then(setTelB).catch(e => setError(String(e)))
-  }, [year, event, selB])
+  }, [year, event, session, selB])
 
   const info = (sel: Sel | null) => {
     const l = laps.find(x => sel && x.driver === sel.driver && x.lap === sel.lap)

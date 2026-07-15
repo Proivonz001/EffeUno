@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import fastf1
+import numpy as np
 import pandas as pd
 
 from .base import DataSource, LoadedSession
@@ -132,6 +133,68 @@ class FastF1Session(LoadedSession):
                 pen.setdefault(num, []).append([t, "S&G"])
         return tl, pen
 
+    def _sector_marks(self, ref_lap: Any, ref_tel: Any) -> list[list[float]]:
+        """Coordinate dei confini S1/S2 e S2/S3, interpolate sul giro di
+        riferimento all'istante in cui i settori sono scattati."""
+        marks: list[list[float]] = []
+        st = ref_tel["SessionTime"].dt.total_seconds()
+        cum = ref_lap["LapStartTime"]
+        for col in ("Sector1Time", "Sector2Time"):
+            v = ref_lap[col]
+            if pd.isna(v):
+                return []
+            cum = cum + v
+            ts = cum.total_seconds()
+            marks.append([
+                round(float(np.interp(ts, st, ref_tel["X"])), 1),
+                round(float(np.interp(ts, st, ref_tel["Y"])), 1),
+            ])
+        return marks
+
+    # codici del canale DRS con ala aperta (8 = solo abilitato)
+    DRS_OPEN = (10, 12, 14)
+
+    def _drs_zones(self, ref_tel: Any) -> list[list[list[float]]]:
+        """Zone DRS come segmenti [x,y] del giro di riferimento, ricavate dai
+        dati: tratti in cui i piloti hanno tenuto l'ala aperta durante la gara
+        (il feed non pubblica la geometria delle zone). Dalle regole 2026 il
+        DRS come aiuto al sorpasso non esiste piu' (ali attive X/Z-mode
+        ovunque): nessuna zona da disegnare."""
+        if int(self._s.event["EventDate"].year) >= 2026:
+            return []
+        bin_m = 25.0
+        lap_len = float(ref_tel["Distance"].iloc[-1])
+        nbins = int(lap_len // bin_m) + 1
+        counts = np.zeros(nbins)
+        for num in list(self._s.drivers)[:10]:
+            laps = self._s.laps[self._s.laps["DriverNumber"] == num]
+            for _, lap in laps.iterlaps():
+                try:
+                    car = lap.get_car_data().add_distance()
+                except Exception:
+                    continue
+                dists = car.loc[car["DRS"].isin(self.DRS_OPEN), "Distance"]
+                idx = (dists // bin_m).astype(int)
+                for i in idx[(idx >= 0) & (idx < nbins)]:
+                    counts[i] += 1
+        threshold = max(6.0, 0.1 * counts.max())
+        if counts.max() < 6:
+            return []
+        zones: list[list[list[float]]] = []
+        start: int | None = None
+        for i in range(nbins + 1):
+            hot = i < nbins and counts[i] >= threshold
+            if hot and start is None:
+                start = i
+            elif not hot and start is not None:
+                d0, d1 = start * bin_m, i * bin_m
+                seg = ref_tel[(ref_tel["Distance"] >= d0) & (ref_tel["Distance"] <= d1)]
+                if len(seg) > 1:
+                    zones.append([[round(x, 1), round(y, 1)]
+                                  for x, y in zip(seg["X"], seg["Y"])])
+                start = None
+        return zones
+
     @staticmethod
     def _pit_lane_polyline(drivers: list[dict[str, Any]]) -> list[list[float]]:
         """Percorso della pit lane: la traversata dei box reale (ingresso ->
@@ -190,7 +253,8 @@ class FastF1Session(LoadedSession):
                     "penalties": penalties.get(num, []),
                 })
 
-        tel = s.laps.pick_fastest().get_telemetry()
+        ref_lap = s.laps.pick_fastest()
+        tel = ref_lap.get_telemetry().add_distance()
         track = [[round(x, 1), round(y, 1)] for x, y in zip(tel["X"], tel["Y"])]
 
         # stato pista: 1 verde, 2 gialla, 4 SC, 5 rossa, 6 VSC, 7 VSC in rientro
@@ -204,6 +268,8 @@ class FastF1Session(LoadedSession):
             "duration_s": round(duration, 1),
             "track": track,
             "pit_lane": self._pit_lane_polyline(drivers),
+            "sector_marks": self._sector_marks(ref_lap, tel),
+            "drs_zones": self._drs_zones(tel),
             "drivers": drivers,
             "track_status": track_status,
         }
@@ -290,8 +356,21 @@ class FastF1Session(LoadedSession):
                     })
                 except Exception:
                     continue
+        weather: list[list[Any]] = []
+        w = self._s.weather_data
+        if w is not None and not w.empty:
+            for _, row in w.iterrows():
+                weather.append([
+                    round(row["Time"].total_seconds() - self._t0, 0),
+                    round(float(row["AirTemp"]), 1),
+                    round(float(row["TrackTemp"]), 1),
+                    bool(row["Rainfall"]),
+                    round(float(row["WindSpeed"]), 1),
+                    int(row["WindDirection"]),
+                ])
+
         radio.sort(key=lambda r: r["t"])
-        return {"race_control": race_control, "radio": radio}
+        return {"race_control": race_control, "radio": radio, "weather": weather}
 
     def lap_telemetry(self, driver: str, lap: int) -> dict[str, Any]:
         laps = self._s.laps.pick_drivers(driver)
@@ -327,6 +406,7 @@ class FastF1Source(DataSource):
                 "name": ev["EventName"],
                 "country": ev["Country"],
                 "date": str(ev["EventDate"].date()),
+                "format": str(ev["EventFormat"]),
             }
             for _, ev in schedule.iterrows()
         ]

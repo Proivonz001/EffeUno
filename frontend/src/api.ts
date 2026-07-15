@@ -3,6 +3,8 @@ export interface EventInfo {
   name: string
   country: string
   date: string
+  /** 'conventional' | 'sprint_qualifying' | ... — decide se esiste la Sprint */
+  format: string
 }
 
 export interface DriverInfo {
@@ -45,6 +47,10 @@ export interface ReplayData {
   track: [number, number][]
   /** traversata reale della pit lane (ingresso -> box -> uscita) */
   pit_lane: [number, number][]
+  /** confini S1/S2 e S2/S3 sul giro di riferimento */
+  sector_marks: [number, number][]
+  /** zone DRS (vuoto dal 2026: ali attive, niente zone) */
+  drs_zones: [number, number][][]
   /** [t, codice]: 1 verde, 2 gialla, 4 SC, 5 rossa, 6 VSC, 7 VSC in rientro */
   track_status: [number, number][]
   drivers: ReplayDriver[]
@@ -66,6 +72,8 @@ export interface RadioClip {
 export interface FeedData {
   race_control: RaceControlMsg[]
   radio: RadioClip[]
+  /** [t, aria °C, pista °C, pioggia, vento m/s, direzione vento °] */
+  weather: [number, number, number, boolean, number, number][]
 }
 
 export interface LapInfo {

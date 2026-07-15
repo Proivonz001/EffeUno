@@ -36,9 +36,9 @@ class LoadedSession(ABC):
         """Canali telemetria di un giro, allineati per distanza."""
 
     def feed(self) -> dict[str, Any]:
-        """Feed cronologico: messaggi direzione gara e clip team radio.
-        Facoltativo: le sorgenti che non lo hanno restituiscono liste vuote."""
-        return {"race_control": [], "radio": []}
+        """Feed cronologico: messaggi direzione gara, clip team radio e
+        campioni meteo. Facoltativo: default liste vuote."""
+        return {"race_control": [], "radio": [], "weather": []}
 
 
 class DataSource(ABC):

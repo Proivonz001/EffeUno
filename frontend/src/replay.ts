@@ -277,6 +277,37 @@ export interface Standing {
   penalty: string | null
 }
 
+/** Classifica di qualifica/prove al tempo t: ordina per miglior giro,
+ *  gap in millesimi dalla pole provvisoria. */
+export function standingsQualiAt(replay: ReplayData, t: number): Standing[] {
+  const times = lapTimesAt(replay, t)
+  const rows = replay.drivers.map(driver => ({ driver, lt: times.get(driver.num) }))
+  rows.sort((a, b) => (a.lt?.best ?? Infinity) - (b.lt?.best ?? Infinity))
+  const pole = rows[0]?.lt?.best ?? null
+  return rows.map((r, i) => {
+    const best = r.lt?.best ?? null
+    const prev = i > 0 ? rows[i - 1].lt?.best ?? null : null
+    const lap = Math.floor(progressAt(r.driver.laps, t)) + 1
+    return {
+      driver: r.driver,
+      pos: i + 1,
+      lap,
+      progress: 0,
+      gapText: best === null ? '—'
+        : i === 0 ? 'Pole'
+        : pole === null ? '—' : `+${(best - pole).toFixed(3)}`,
+      interval: best !== null && prev !== null ? best - prev : null,
+      drs: false,
+      inPit: inPit(r.driver.pits, t),
+      out: false,
+      tyre: tyreAt(r.driver, lap),
+      pitCount: r.driver.pits.filter(p => p[0] <= t).length,
+      tlCount: r.driver.tl.filter(x => x <= t).length,
+      penalty: null,
+    }
+  })
+}
+
 /** Classifica al tempo t, calcolata dal progresso sulla timeline dei giri. */
 export function standingsAt(replay: ReplayData, t: number): Standing[] {
   const totalLaps = Math.max(...replay.drivers.map(d => d.laps.length ? d.laps[d.laps.length - 1][0] : 0))

@@ -1,12 +1,16 @@
 import { useMemo } from 'react'
-import type { ReplayData } from './api'
+import type { ReplayData, ReplayDriver } from './api'
 import { teamColor } from './palette'
-import { contrastColor, lapTimesAt, sectorsAt, standingsAt, TYRE_COLORS } from './replay'
+import { contrastColor, lapTimesAt, sectorsAt, standingsAt, standingsQualiAt, TYRE_COLORS } from './replay'
 import type { SectorClass } from './replay'
 
 interface Props {
   replay: ReplayData
   time: number
+  /** 'quali' ordina per miglior giro invece che per progresso */
+  mode: 'race' | 'quali'
+  focus: string | null
+  onFocus: (num: string | null) => void
 }
 
 const SECTOR_COLORS: Record<SectorClass, string> = {
@@ -37,10 +41,20 @@ export function TyreIcon({ c }: { c: string }) {
   )
 }
 
-export default function Leaderboard({ replay, time }: Props) {
+/** durate delle traversate pit lane completate finora, per il tooltip */
+function pitDurations(d: ReplayDriver, t: number): string {
+  const done = d.pits.filter(p => p[0] <= t && p[1] !== null && p[1] - p[0] <= 90)
+  if (done.length === 0) return 'pit stop effettuati'
+  return 'pit lane: ' + done.map(p => `${(p[1]! - p[0]).toFixed(1)}s`).join(' · ')
+}
+
+export default function Leaderboard({ replay, time, mode, focus, onFocus }: Props) {
   // ricalcolo a mezzo secondo, non a 60fps: basta e avanza per una classifica
   const qt = Math.floor(time * 2) / 2
-  const rows = useMemo(() => standingsAt(replay, qt), [replay, qt])
+  const rows = useMemo(
+    () => mode === 'quali' ? standingsQualiAt(replay, qt) : standingsAt(replay, qt),
+    [replay, qt, mode],
+  )
   const sectors = useMemo(() => sectorsAt(replay, qt), [replay, qt])
   const lapTimes = useMemo(() => lapTimesAt(replay, qt), [replay, qt])
   const colorIndex = useMemo(
@@ -72,7 +86,11 @@ export default function Leaderboard({ replay, time }: Props) {
             const sec = sectors.get(r.driver.num)
             const lt = lapTimes.get(r.driver.num)
             return (
-              <tr key={r.driver.num} className={r.out ? 'out' : ''}>
+              <tr
+                key={r.driver.num}
+                className={(r.out ? 'out' : '') + (focus === r.driver.num ? ' focus' : '')}
+                onClick={() => onFocus(focus === r.driver.num ? null : r.driver.num)}
+              >
                 <td className="pos">{r.pos}</td>
                 <td>
                   <span className="tag" style={{ background: bg, color: contrastColor(bg) }}>
@@ -84,7 +102,9 @@ export default function Leaderboard({ replay, time }: Props) {
                   {!r.out && (r.inPit ? (
                     <span className="box">BOX</span>
                   ) : r.interval !== null && (
-                    <span className={r.drs ? 'drs' : ''}>+{r.interval.toFixed(1)}</span>
+                    <span className={r.drs ? 'drs' : ''}>
+                      +{r.interval.toFixed(mode === 'quali' ? 3 : 1)}
+                    </span>
                   ))}
                 </td>
                 <td className="sectors" title="settori del giro in corso — viola: best assoluto, verde: best personale, giallo: piu' lento">
@@ -117,7 +137,7 @@ export default function Leaderboard({ replay, time }: Props) {
                     </>
                   )}
                 </td>
-                <td className="pit-count" title="pit stop effettuati">
+                <td className="pit-count" title={pitDurations(r.driver, qt)}>
                   {!r.out && r.pitCount > 0 ? r.pitCount : ''}
                 </td>
                 <td className="tl-slot" title={r.tlCount > 0 ? `${r.tlCount} giri cancellati per track limits` : undefined}>
