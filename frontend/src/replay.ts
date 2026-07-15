@@ -47,7 +47,11 @@ export function timeAtProgress(
 ): number | null {
   const done = Math.floor(p)
   const entry = laps.find(l => l[0] === done + 1)
-  if (!entry) return null
+  if (!entry) {
+    // p esattamente sull'ultimo giro (gara finita): l'istante e' la fine di quel giro
+    const last = laps.find(l => l[0] === done)
+    return last ? last[2] ?? last[1] : null
+  }
   const [, start, end] = entry
   if (end === null) return start
   return start + (p - done) * (end - start)
@@ -238,11 +242,15 @@ export function standingsAt(replay: ReplayData, t: number): Standing[] {
     const progress = progressAt(driver.laps, t)
     const lastT = driver.points.length ? driver.points[driver.points.length - 1][0] : 0
     const out = t > retireAt[i] || (t > lastT + 30 && progress < totalLaps)
-    return { driver, progress, out }
+    // dopo la bandiera a scacchi il tempo del pilota si congela al suo arrivo:
+    // i gap restano quelli del traguardo invece di divergere o sparire
+    const effT = Math.min(t, lapsEnd(driver))
+    return { driver, progress, out, effT }
   })
   rows.sort((a, b) => {
     if (a.out !== b.out) return a.out ? 1 : -1
-    return b.progress - a.progress
+    if (a.progress !== b.progress) return b.progress - a.progress
+    return a.effT - b.effT // a pari giri completati, chi e' arrivato prima
   })
 
   const leader = rows[0]
@@ -257,19 +265,19 @@ export function standingsAt(replay: ReplayData, t: number): Standing[] {
       gapText = `+${Math.floor(leader.progress - r.progress)} giri`
     } else {
       const tLeader = timeAtProgress(leader.driver.laps, r.progress)
-      gapText = tLeader === null ? '—' : `+${Math.max(0, t - tLeader).toFixed(1)}`
+      gapText = tLeader === null ? '—' : `+${Math.max(0, r.effT - tLeader).toFixed(1)}`
     }
     const lap = Math.min(Math.floor(r.progress) + 1, totalLaps)
 
     let interval: number | null = null
     if (i > 0 && !r.out) {
       const tAhead = timeAtProgress(rows[i - 1].driver.laps, r.progress)
-      if (tAhead !== null) interval = Math.max(0, t - tAhead)
+      if (tAhead !== null) interval = Math.max(0, r.effT - tAhead)
     }
     const pit = inPit(r.driver.pits, t)
     // regola overtake/DRS: entro 1s dal pilota davanti, gara verde,
-    // non ai box, non nei primi 2 giri
-    const drs = !r.out && !pit && green && lap > 2 &&
+    // non ai box, non nei primi 2 giri, gara non ancora conclusa
+    const drs = !r.out && !pit && green && lap > 2 && r.effT === t &&
       interval !== null && interval < 1.0
 
     const pens = r.driver.penalties.filter(p => p[0] <= t)
