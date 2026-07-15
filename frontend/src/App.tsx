@@ -7,7 +7,13 @@ import Leaderboard from './Leaderboard'
 import { STATUS_INFO, trackStatusAt } from './replay'
 import TrackMap from './TrackMap'
 
-const YEAR = 2025
+// FastF1 ha telemetria/posizioni affidabili dal 2018 in poi
+const FIRST_YEAR = 2018
+const CURRENT_YEAR = new Date().getFullYear()
+const YEARS = Array.from(
+  { length: CURRENT_YEAR - FIRST_YEAR + 1 },
+  (_, i) => CURRENT_YEAR - i,
+)
 const SPEEDS = [1, 2, 5, 10, 30]
 
 function fmtClock(s: number): string {
@@ -18,9 +24,10 @@ function fmtClock(s: number): string {
 }
 
 export default function App() {
+  const [year, setYear] = useState(2025)
   const [events, setEvents] = useState<EventInfo[]>([])
   const [event, setEvent] = useState('Italian Grand Prix')
-  const [loadedEvent, setLoadedEvent] = useState<string | null>(null)
+  const [loaded, setLoaded] = useState<{ year: number; event: string } | null>(null)
   const [phase, setPhase] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const [loadingFor, setLoadingFor] = useState(0)
   const [error, setError] = useState('')
@@ -32,10 +39,17 @@ export default function App() {
   const [speed, setSpeed] = useState(10)
 
   useEffect(() => {
-    getEvents(YEAR)
-      .then(evs => setEvents(evs.filter(e => new Date(e.date) < new Date())))
+    getEvents(year)
+      .then(evs => {
+        const past = evs.filter(e => new Date(e.date) < new Date())
+        setEvents(past)
+        // se la gara selezionata non esiste in questa stagione, prendi l'ultima corsa
+        setEvent(cur => past.some(e => e.name === cur)
+          ? cur
+          : past[past.length - 1]?.name ?? '')
+      })
       .catch(e => setError(String(e)))
-  }, [])
+  }, [year])
 
   async function load() {
     setPhase('loading')
@@ -44,9 +58,9 @@ export default function App() {
     setReplay(null)
     setTab('replay')
     try {
-      await waitForSession(YEAR, event, 'R', setLoadingFor)
-      setReplay(await getReplay(YEAR, event, 'R'))
-      setLoadedEvent(event)
+      await waitForSession(year, event, 'R', setLoadingFor)
+      setReplay(await getReplay(year, event, 'R'))
+      setLoaded({ year, event })
       setTime(0)
       setPhase('ready')
     } catch (e) {
@@ -80,6 +94,9 @@ export default function App() {
     <div className="app">
       <header>
         <h1>EffeUno</h1>
+        <select value={year} onChange={e => setYear(Number(e.target.value))}>
+          {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
         <select value={event} onChange={e => setEvent(e.target.value)}>
           {events.map(ev => (
             <option key={ev.round} value={ev.name}>
@@ -129,7 +146,7 @@ export default function App() {
       </header>
       {error && <p className="error">{error}</p>}
       {phase === 'idle' && !error && (
-        <p className="hint">Scegli una gara {YEAR} e premi «Carica gara». Il primo
+        <p className="hint">Scegli stagione e gara, poi premi «Carica gara». Il primo
           caricamento scarica i dati via FastF1 e può richiedere qualche decina di secondi.</p>
       )}
       {replay && tab === 'replay' && (
@@ -138,8 +155,8 @@ export default function App() {
           <TrackMap replay={replay} time={time} />
         </div>
       )}
-      {replay && loadedEvent && tab === 'compare' && (
-        <Compare year={YEAR} event={loadedEvent} />
+      {replay && loaded && tab === 'compare' && (
+        <Compare year={loaded.year} event={loaded.event} />
       )}
     </div>
   )
