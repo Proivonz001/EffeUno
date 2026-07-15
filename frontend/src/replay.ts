@@ -200,19 +200,60 @@ export function sectorsAt(replay: ReplayData, t: number): Map<string, DriverSect
   return out
 }
 
-/** Pilota col giro piu' veloce completato entro il tempo t. */
-export function fastestLapAt(replay: ReplayData): (t: number) => { num: string; time: number } | null {
-  return (t: number) => {
-    let best: { num: string; time: number } | null = null
+// --- tempi giro: ultimo e migliore. Come per i settori, la classificazione
+// dell'ultimo giro (viola/verde) si congela al momento del completamento. ---
+
+interface LapEvent {
+  num: string
+  time: number
+  /** istante in cui il giro e' stato completato */
+  end: number
+}
+
+const lapEventsCache = new WeakMap<ReplayData, LapEvent[]>()
+
+export interface DriverLapTimes {
+  last: { time: number; cls: SectorClass } | null
+  best: number | null
+  /** detentore del giro veloce della gara al tempo t */
+  fastest: boolean
+}
+
+/** Ultimo giro, miglior giro e giro veloce di tutti i piloti al tempo t. */
+export function lapTimesAt(replay: ReplayData, t: number): Map<string, DriverLapTimes> {
+  let events = lapEventsCache.get(replay)
+  if (!events) {
+    events = []
     for (const d of replay.drivers) {
       for (const [, start, end] of d.laps) {
-        if (end === null || end > t) continue
-        const lapTime = end - start
-        if (!best || lapTime < best.time) best = { num: d.num, time: lapTime }
+        if (end !== null && end > start) events.push({ num: d.num, time: end - start, end })
       }
     }
-    return best
+    events.sort((a, b) => a.end - b.end)
+    lapEventsCache.set(replay, events)
   }
+  const out = new Map<string, DriverLapTimes>()
+  let bestOverall: number | null = null
+  let bestNum: string | null = null
+  for (const ev of events) {
+    if (ev.end > t) break
+    let d = out.get(ev.num)
+    if (!d) {
+      d = { last: null, best: null, fastest: false }
+      out.set(ev.num, d)
+    }
+    let cls: SectorClass = 'std'
+    if (bestOverall === null || ev.time <= bestOverall) cls = 'ob'
+    else if (d.best === null || ev.time <= d.best) cls = 'pb'
+    if (bestOverall === null || ev.time < bestOverall) {
+      bestOverall = ev.time
+      bestNum = ev.num
+    }
+    if (d.best === null || ev.time < d.best) d.best = ev.time
+    d.last = { time: ev.time, cls }
+  }
+  if (bestNum !== null) out.get(bestNum)!.fastest = true
+  return out
 }
 
 export interface Standing {

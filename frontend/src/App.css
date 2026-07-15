@@ -100,7 +100,7 @@ header input[type='range'] {
 
 /* --- classifica --- */
 .leaderboard {
-  width: 330px;
+  width: 460px;
   flex-shrink: 0;
   overflow-y: auto;
   background: #181818;
@@ -182,6 +182,13 @@ header input[type='range'] {
   font-weight: 700;
 }
 
+/* in pit lane: sostituisce l'intervallo, che ai box non significa nulla */
+.leaderboard .int .box {
+  color: #f39c12;
+  font-weight: 700;
+  font-size: 10px;
+}
+
 .leaderboard .sectors {
   white-space: nowrap;
 }
@@ -194,25 +201,53 @@ header input[type='range'] {
   margin-right: 2px;
 }
 
-.leaderboard .badges {
+/* tempi giro: ultimo e migliore, stessa convenzione colori dei settori */
+.leaderboard .lap-time {
+  width: 58px;
+  text-align: right;
+  color: #ccc;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+
+.leaderboard .lap-time.best {
+  color: #888;
+}
+
+.leaderboard .lap-time .pb {
+  color: #2ecc71;
+}
+
+.leaderboard .lap-time .ob {
+  color: #b455ff;
+  font-weight: 700;
+}
+
+/* giri cancellati per track limits: una tacca per giro, slot fisso */
+.leaderboard .tl-slot {
+  width: 32px;
   white-space: nowrap;
+}
+
+.tl-notch {
+  display: inline-block;
+  width: 3px;
+  height: 9px;
+  background: #f1c40f;
+  margin-right: 2px;
+  vertical-align: middle;
+}
+
+.leaderboard .tl-text {
+  color: #f1c40f;
   font-size: 10px;
   font-weight: 700;
 }
 
-.leaderboard .badges span {
-  margin-right: 4px;
-}
-
-.leaderboard .fl {
-  color: #b455ff;
-  border: 1px solid #b455ff;
-  border-radius: 3px;
-  padding: 0 3px;
-}
-
-.leaderboard .tl {
-  color: #e67e22;
+.leaderboard .badges {
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 700;
 }
 
 .leaderboard .pen {
@@ -220,10 +255,6 @@ header input[type='range'] {
   background: #c0392b;
   border-radius: 3px;
   padding: 1px 4px;
-}
-
-.leaderboard .pit {
-  color: #f1c40f;
 }
 
 .leaderboard tr.out {

@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import type { ReplayData } from './api'
 import { teamColor } from './palette'
-import { contrastColor, fastestLapAt, sectorsAt, standingsAt, TYRE_COLORS } from './replay'
+import { contrastColor, lapTimesAt, sectorsAt, standingsAt, TYRE_COLORS } from './replay'
 import type { SectorClass } from './replay'
 
 interface Props {
@@ -42,8 +42,7 @@ export default function Leaderboard({ replay, time }: Props) {
   const qt = Math.floor(time * 2) / 2
   const rows = useMemo(() => standingsAt(replay, qt), [replay, qt])
   const sectors = useMemo(() => sectorsAt(replay, qt), [replay, qt])
-  const fastestFn = useMemo(() => fastestLapAt(replay), [replay])
-  const fastest = useMemo(() => fastestFn(qt), [fastestFn, qt])
+  const lapTimes = useMemo(() => lapTimesAt(replay, qt), [replay, qt])
   const colorIndex = useMemo(
     () => new Map(replay.drivers.map((d, i) => [d.num, i])),
     [replay],
@@ -56,6 +55,7 @@ export default function Leaderboard({ replay, time }: Props) {
           {rows.map(r => {
             const bg = teamColor(r.driver.team, colorIndex.get(r.driver.num) ?? 0)
             const sec = sectors.get(r.driver.num)
+            const lt = lapTimes.get(r.driver.num)
             return (
               <tr key={r.driver.num} className={r.out ? 'out' : ''}>
                 <td className="pos">{r.pos}</td>
@@ -65,10 +65,12 @@ export default function Leaderboard({ replay, time }: Props) {
                   </span>
                 </td>
                 <td className="gap">{r.gapText}</td>
-                <td className="int" title="distacco dal pilota davanti — cerchiato: overtake/DRS disponibile (<1s)">
-                  {!r.out && r.interval !== null && (
+                <td className="int" title="distacco dal pilota davanti — cerchiato: overtake/DRS disponibile (<1s) — BOX: in pit lane">
+                  {!r.out && (r.inPit ? (
+                    <span className="box">BOX</span>
+                  ) : r.interval !== null && (
                     <span className={r.drs ? 'drs' : ''}>+{r.interval.toFixed(1)}</span>
-                  )}
+                  ))}
                 </td>
                 <td className="tyre" title="mescola · giri percorsi con questo treno">
                   {r.tyre && !r.out && (
@@ -90,17 +92,23 @@ export default function Leaderboard({ replay, time }: Props) {
                     )
                   })}
                 </td>
+                <td className="lap-time" title="ultimo giro — verde: best personale, viola: best assoluto">
+                  {!r.out && lt?.last && (
+                    <span className={lt.last.cls}>{fmtLapTime(lt.last.time)}</span>
+                  )}
+                </td>
+                <td className="lap-time best" title="miglior giro — viola: giro veloce della gara">
+                  {!r.out && lt?.best != null && (
+                    <span className={lt.fastest ? 'ob' : ''}>{fmtLapTime(lt.best)}</span>
+                  )}
+                </td>
+                <td className="tl-slot" title={r.tlCount > 0 ? `${r.tlCount} giri cancellati per track limits` : undefined}>
+                  {!r.out && r.tlCount > 0 && (r.tlCount <= 6
+                    ? Array.from({ length: r.tlCount }, (_, i) => <i key={i} className="tl-notch" />)
+                    : <span className="tl-text">{r.tlCount}</span>)}
+                </td>
                 <td className="badges">
-                  {!r.out && fastest?.num === r.driver.num && (
-                    <span className="fl" title={`giro piu' veloce: ${fmtLapTime(fastest.time)}`}>FL</span>
-                  )}
-                  {!r.out && r.tlCount > 0 && (
-                    <span className="tl" title={`${r.tlCount} giri cancellati per track limits`}>
-                      TL{r.tlCount}
-                    </span>
-                  )}
                   {r.penalty && <span className="pen" title="penalita' dalla direzione gara">{r.penalty}</span>}
-                  {r.inPit && !r.out && <span className="pit">BOX</span>}
                 </td>
               </tr>
             )
