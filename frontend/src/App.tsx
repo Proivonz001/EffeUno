@@ -23,6 +23,35 @@ const SESSION_LABELS: Record<SessionCode, string> = {
   R: 'Gara', S: 'Sprint', Q: 'Qualifica',
 }
 
+/** icona meteo: sole quando e' asciutto, nuvola con gocce quando piove */
+function WeatherIcon({ rain }: { rain: boolean }) {
+  return rain ? (
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-label="pioggia">
+      <path d="M7 14a4.5 4.5 0 1 1 .8-8.9A5.5 5.5 0 0 1 18.3 7.6 3.7 3.7 0 0 1 17.5 14z"
+        fill="#9ab" />
+      <g stroke="#4aa3e0" strokeWidth="1.6" strokeLinecap="round">
+        <line x1="8.5" y1="16.5" x2="7.5" y2="19.5" />
+        <line x1="12.5" y1="16.5" x2="11.5" y2="19.5" />
+        <line x1="16.5" y1="16.5" x2="15.5" y2="19.5" />
+      </g>
+    </svg>
+  ) : (
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-label="sereno">
+      <circle cx="12" cy="12" r="4.5" fill="#f5c542" />
+      <g stroke="#f5c542" strokeWidth="1.6" strokeLinecap="round">
+        {Array.from({ length: 8 }, (_, i) => {
+          const a = (i * Math.PI) / 4
+          return (
+            <line key={i}
+              x1={12 + Math.cos(a) * 6.5} y1={12 + Math.sin(a) * 6.5}
+              x2={12 + Math.cos(a) * 9} y2={12 + Math.sin(a) * 9} />
+          )
+        })}
+      </g>
+    </svg>
+  )
+}
+
 function fmtClock(s: number): string {
   const h = Math.floor(s / 3600)
   const m = Math.floor((s % 3600) / 60)
@@ -188,6 +217,7 @@ export default function App() {
                 className="weather"
                 title={`aria ${wx[1]}° · pista ${wx[2]}° · vento ${wx[4]} m/s da ${wx[5]}°${wx[3] ? ' · pioggia' : ''}`}
               >
+                <WeatherIcon rain={wx[3]} />
                 {wx[1].toFixed(0)}°<em>aria</em> {wx[2].toFixed(0)}°<em>pista</em>
                 <span className="wind" style={{ transform: `rotate(${(wx[5] + 180) % 360}deg)` }}>↑</span>
                 {wx[4].toFixed(0)}<em>m/s</em>
@@ -209,7 +239,10 @@ export default function App() {
             mode={loaded.session === 'Q' ? 'quali' : 'race'}
             focus={focus} onFocus={setFocus}
           />
-          <TrackMap replay={replay} time={time} focus={focus} onFocus={setFocus} />
+          <TrackMap
+            replay={replay} time={time} focus={focus} onFocus={setFocus}
+            wind={wx ? [wx[4], wx[5]] : null}
+          />
           {feedData && <Feed feed={feedData} replay={replay} time={time} focus={focus} />}
         </div>
       )}

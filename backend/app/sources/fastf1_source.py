@@ -87,14 +87,16 @@ class FastF1Session(LoadedSession):
         return out
 
     def _tyres(self, laps: pd.DataFrame) -> list[list[Any]]:
-        """[giro, mescola (S/M/H/I/W), giri percorsi con questo treno].
+        """[giro, mescola (S/M/H/I/W), giri percorsi con questo treno, nuova].
         Nota: l'usura reale non e' nel feed; l'eta' in giri e' il proxy standard."""
         out: list[list[Any]] = []
         for _, lap in laps.sort_values("LapNumber").iterrows():
             compound = COMPOUND_LETTER.get(str(lap["Compound"]).upper(), "?")
             life = lap["TyreLife"]
+            fresh = lap["FreshTyre"]
             out.append([int(lap["LapNumber"]), compound,
-                        int(life) if pd.notna(life) else None])
+                        int(life) if pd.notna(life) else None,
+                        bool(fresh) if pd.notna(fresh) else True])
         return out
 
     def _sectors(self, laps: pd.DataFrame) -> list[list[Any]]:
@@ -151,21 +153,26 @@ class FastF1Session(LoadedSession):
             ])
         return marks
 
-    # codici del canale DRS con ala aperta (8 = solo abilitato)
+    # canale DRS: 8 = rilevato entro 1s (abilitato), 10/12/14 = ala aperta
     DRS_OPEN = (10, 12, 14)
+    DRS_ELIGIBLE = 8
 
-    def _drs_zones(self, ref_tel: Any) -> list[list[list[float]]]:
-        """Zone DRS come segmenti [x,y] del giro di riferimento, ricavate dai
-        dati: tratti in cui i piloti hanno tenuto l'ala aperta durante la gara
-        (il feed non pubblica la geometria delle zone). Dalle regole 2026 il
-        DRS come aiuto al sorpasso non esiste piu' (ali attive X/Z-mode
-        ovunque): nessuna zona da disegnare."""
+    def _drs_geometry(self, ref_tel: Any) -> tuple[list[list[list[float]]], list[list[float]]]:
+        """(zone DRS, punti di detection) ricavati dai dati di tutta la gara:
+        le zone sono i tratti dove i piloti hanno tenuto l'ala aperta, i punti
+        di detection sono dove il canale passa a 8 (rilevati entro 1s) — il
+        feed non pubblica la geometria di nessuno dei due.
+
+        Regole 2026: il DRS non e' piu' aiuto al sorpasso e la telemetria
+        pubblica (per ora) non espone lo stato override/detection: il canale
+        resta a 0 e questa scansione non produce nulla, quindi si salta."""
         if int(self._s.event["EventDate"].year) >= 2026:
-            return []
+            return [], []
         bin_m = 25.0
         lap_len = float(ref_tel["Distance"].iloc[-1])
         nbins = int(lap_len // bin_m) + 1
-        counts = np.zeros(nbins)
+        open_counts = np.zeros(nbins)
+        onset_counts = np.zeros(nbins)
         for num in list(self._s.drivers)[:10]:
             laps = self._s.laps[self._s.laps["DriverNumber"] == num]
             for _, lap in laps.iterlaps():
@@ -173,27 +180,48 @@ class FastF1Session(LoadedSession):
                     car = lap.get_car_data().add_distance()
                 except Exception:
                     continue
-                dists = car.loc[car["DRS"].isin(self.DRS_OPEN), "Distance"]
-                idx = (dists // bin_m).astype(int)
+                drs = car["DRS"].to_numpy()
+                dist = car["Distance"].to_numpy()
+                idx = (dist[np.isin(drs, self.DRS_OPEN)] // bin_m).astype(int)
                 for i in idx[(idx >= 0) & (idx < nbins)]:
-                    counts[i] += 1
-        threshold = max(6.0, 0.1 * counts.max())
-        if counts.max() < 6:
-            return []
+                    open_counts[i] += 1
+                # transizioni a "rilevato": l'inizio marca il punto di detection
+                onset = (drs[1:] == self.DRS_ELIGIBLE) & (drs[:-1] != self.DRS_ELIGIBLE)
+                oidx = (dist[1:][onset] // bin_m).astype(int)
+                for i in oidx[(oidx >= 0) & (oidx < nbins)]:
+                    onset_counts[i] += 1
+
+        def hot_ranges(counts: Any, min_count: float) -> list[tuple[float, float]]:
+            threshold = max(min_count, 0.1 * counts.max())
+            if counts.max() < min_count:
+                return []
+            out: list[tuple[float, float]] = []
+            start: int | None = None
+            for i in range(nbins + 1):
+                hot = i < nbins and counts[i] >= threshold
+                if hot and start is None:
+                    start = i
+                elif not hot and start is not None:
+                    out.append((start * bin_m, i * bin_m))
+                    start = None
+            return out
+
         zones: list[list[list[float]]] = []
-        start: int | None = None
-        for i in range(nbins + 1):
-            hot = i < nbins and counts[i] >= threshold
-            if hot and start is None:
-                start = i
-            elif not hot and start is not None:
-                d0, d1 = start * bin_m, i * bin_m
-                seg = ref_tel[(ref_tel["Distance"] >= d0) & (ref_tel["Distance"] <= d1)]
-                if len(seg) > 1:
-                    zones.append([[round(x, 1), round(y, 1)]
-                                  for x, y in zip(seg["X"], seg["Y"])])
-                start = None
-        return zones
+        for d0, d1 in hot_ranges(open_counts, 6):
+            seg = ref_tel[(ref_tel["Distance"] >= d0) & (ref_tel["Distance"] <= d1)]
+            if len(seg) > 1:
+                zones.append([[round(x, 1), round(y, 1)]
+                              for x, y in zip(seg["X"], seg["Y"])])
+
+        detections: list[list[float]] = []
+        dist_ref = ref_tel["Distance"]
+        for d0, d1 in hot_ranges(onset_counts, 6):
+            mid = (d0 + d1) / 2
+            detections.append([
+                round(float(np.interp(mid, dist_ref, ref_tel["X"])), 1),
+                round(float(np.interp(mid, dist_ref, ref_tel["Y"])), 1),
+            ])
+        return zones, detections
 
     @staticmethod
     def _pit_lane_polyline(drivers: list[dict[str, Any]]) -> list[list[float]]:
@@ -264,12 +292,14 @@ class FastF1Session(LoadedSession):
             for _, row in ts.iterrows()
         ]
 
+        drs_zones, detection_points = self._drs_geometry(tel)
         return {
             "duration_s": round(duration, 1),
             "track": track,
             "pit_lane": self._pit_lane_polyline(drivers),
             "sector_marks": self._sector_marks(ref_lap, tel),
-            "drs_zones": self._drs_zones(tel),
+            "drs_zones": drs_zones,
+            "detection_points": detection_points,
             "drivers": drivers,
             "track_status": track_status,
         }

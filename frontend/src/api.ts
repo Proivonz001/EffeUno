@@ -32,8 +32,8 @@ export interface ReplayDriver {
   pits: [number, number | null][]
   /** timeline giri [numero, t inizio, t fine | null] per posizioni e gap */
   laps: [number, number, number | null][]
-  /** [giro, mescola S/M/H/I/W, giri percorsi con questo treno] */
-  tyres: [number, string, number | null][]
+  /** [giro, mescola S/M/H/I/W, giri percorsi con questo treno, treno nuovo] */
+  tyres: [number, string, number | null, boolean][]
   /** [giro, s1, s2, s3] in secondi */
   sectors: [number, number | null, number | null, number | null][]
   /** istanti dei giri cancellati per track limits */
@@ -51,6 +51,8 @@ export interface ReplayData {
   sector_marks: [number, number][]
   /** zone DRS (vuoto dal 2026: ali attive, niente zone) */
   drs_zones: [number, number][][]
+  /** punti di detection (<1s dal pilota davanti); vuoto se non nei dati */
+  detection_points: [number, number][]
   /** [t, codice]: 1 verde, 2 gialla, 4 SC, 5 rossa, 6 VSC, 7 VSC in rientro */
   track_status: [number, number][]
   drivers: ReplayDriver[]

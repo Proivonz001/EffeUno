@@ -10,6 +10,8 @@ interface Props {
   /** pilota evidenziato (numero), null = nessuno */
   focus: string | null
   onFocus: (num: string | null) => void
+  /** [velocita' m/s, direzione di provenienza in gradi] o null */
+  wind: [number, number] | null
 }
 
 /** colore del nastro pista secondo lo stato (verde/gialla/SC/VSC/rossa) */
@@ -18,10 +20,12 @@ const TRACK_TINT: Record<number, string> = {
   5: '#6b2020',
 }
 
-export default function TrackMap({ replay, time, focus, onFocus }: Props) {
+export default function TrackMap({ replay, time, focus, onFocus, wind }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const timeRef = useRef(time)
   timeRef.current = time
+  const windRef = useRef(wind)
+  windRef.current = wind
   const focusRef = useRef(focus)
   focusRef.current = focus
   const onFocusRef = useRef(onFocus)
@@ -186,17 +190,85 @@ export default function TrackMap({ replay, time, focus, onFocus }: Props) {
         tick(replay.track[0][0], replay.track[0][1],
           replay.track[1][0], replay.track[1][1], null, true)
       }
-      replay.sector_marks.forEach((m, i) => {
-        // direzione locale del nastro: punto di pista piu' vicino al confine
+      // direzione locale del nastro: punto di pista piu' vicino al riferimento
+      const trackDirAt = (m: [number, number]): [number, number] => {
         let best = 0
         let bestD = Infinity
         replay.track.forEach((p, j) => {
           const d = (p[0] - m[0]) ** 2 + (p[1] - m[1]) ** 2
           if (d < bestD) { bestD = d; best = j }
         })
-        const next = replay.track[Math.min(best + 1, replay.track.length - 1)]
+        return replay.track[Math.min(best + 1, replay.track.length - 1)]
+      }
+      replay.sector_marks.forEach((m, i) => {
+        const next = trackDirAt(m)
         tick(m[0], m[1], next[0], next[1], `S${i + 2}`, false)
       })
+
+      // punti di detection: qui si decide chi ha l'overtake/DRS (<1s)
+      replay.detection_points.forEach(m => {
+        const [x0, y0] = toScreen(m[0], m[1])
+        ctx.strokeStyle = '#2ecc71'
+        ctx.lineWidth = 2 * dpr
+        ctx.setLineDash([3 * dpr, 3 * dpr])
+        const next = trackDirAt(m)
+        const [x1, y1] = toScreen(next[0], next[1])
+        const a = Math.atan2(y1 - y0, x1 - x0)
+        ctx.save()
+        ctx.translate(x0, y0)
+        ctx.rotate(a)
+        ctx.beginPath()
+        ctx.moveTo(0, -ribbon * 0.9)
+        ctx.lineTo(0, ribbon * 0.9)
+        ctx.stroke()
+        ctx.setLineDash([])
+        ctx.fillStyle = '#2ecc71'
+        ctx.font = `600 ${8 * dpr}px system-ui`
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText('DET', 0, ribbon * 0.9 + 8 * dpr)
+        ctx.restore()
+      })
+
+      // bussola del vento (alto a destra, fissa): direzione di provenienza
+      // ruotata a "verso dove soffia", assumendo la mappa orientata a nord
+      const w = windRef.current
+      if (w) {
+        const cx = canvas.width - 44 * dpr
+        const cy = 40 * dpr
+        const r = 16 * dpr
+        ctx.strokeStyle = '#3a3a3a'
+        ctx.lineWidth = 1.5 * dpr
+        ctx.beginPath()
+        ctx.arc(cx, cy, r, 0, Math.PI * 2)
+        ctx.stroke()
+        ctx.fillStyle = '#666'
+        ctx.font = `600 ${7 * dpr}px system-ui`
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText('N', cx, cy - r - 6 * dpr)
+        const a = ((w[1] + 180) % 360) * Math.PI / 180
+        ctx.save()
+        ctx.translate(cx, cy)
+        ctx.rotate(a)
+        ctx.strokeStyle = '#aaa'
+        ctx.fillStyle = '#aaa'
+        ctx.lineWidth = 2 * dpr
+        ctx.beginPath()
+        ctx.moveTo(0, r * 0.55)
+        ctx.lineTo(0, -r * 0.45)
+        ctx.stroke()
+        ctx.beginPath()
+        ctx.moveTo(0, -r * 0.75)
+        ctx.lineTo(-4 * dpr, -r * 0.25)
+        ctx.lineTo(4 * dpr, -r * 0.25)
+        ctx.closePath()
+        ctx.fill()
+        ctx.restore()
+        ctx.fillStyle = '#888'
+        ctx.font = `600 ${8 * dpr}px system-ui`
+        ctx.fillText(`${w[0].toFixed(0)} m/s`, cx, cy + r + 8 * dpr)
+      }
 
       // pit lane (traversata reale dei box) — sopra il nastro, che a molti
       // circuiti corre attaccato alla corsia e la coprirebbe
