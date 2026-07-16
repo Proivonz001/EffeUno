@@ -268,8 +268,13 @@ class FastF1Session(LoadedSession):
             if points:
                 duration = max(duration, points[-1][0])
                 drv_laps = s.laps[s.laps["DriverNumber"] == num]
+                try:
+                    top_speed = round(float(s.car_data[num]["Speed"].max()), 0)
+                except Exception:
+                    top_speed = None
                 drivers.append({
                     "num": num,
+                    "top_speed": top_speed,
                     "abbr": _clean(info["Abbreviation"]),
                     "team": _clean(info["TeamName"]),
                     "points": points,

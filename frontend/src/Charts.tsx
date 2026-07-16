@@ -7,9 +7,6 @@ interface Props {
   replay: ReplayData
 }
 
-const COLOR_A = '#4da3ff'
-const COLOR_B = '#ff8000'
-
 /** istante di fine di ogni giro per pilota (null se non completato) */
 function lapEnd(d: ReplayDriver, n: number): number | null {
   const lap = d.laps.find(l => l[0] === n)
@@ -124,78 +121,79 @@ function LapChart({ replay }: { replay: ReplayData }) {
   )
 }
 
-/** Distacco per giro tra due piloti: differenza dei tempi di passaggio
- *  sul traguardo, giro per giro. */
+/** Distacco per giro: fino a 2 piloti confrontati con un riferimento,
+ *  differenza dei tempi di passaggio sul traguardo giro per giro. */
 function GapChart({ replay }: { replay: ReplayData }) {
   const W = 1000
-  const H = 220
+  const H = 240
 
-  const finishers = useMemo(
-    () => [...replay.drivers].sort((a, b) => {
-      const la = a.laps.length ? a.laps[a.laps.length - 1][0] : 0
-      const lb = b.laps.length ? b.laps[b.laps.length - 1][0] : 0
-      if (la !== lb) return lb - la
-      const ea = a.laps.length ? a.laps[a.laps.length - 1][2] ?? Infinity : Infinity
-      const eb = b.laps.length ? b.laps[b.laps.length - 1][2] ?? Infinity : Infinity
-      return ea - eb
-    }),
-    [replay],
-  )
-  const [numA, setNumA] = useState(finishers[0]?.num ?? '')
+  const finishers = useMemo(() => finishOrder(replay), [replay])
+  const colorIdx = useMemo(() => new Map(replay.drivers.map((d, i) => [d.num, i])), [replay])
+  const [numRef, setNumRef] = useState(finishers[0]?.num ?? '')
   const [numB, setNumB] = useState(finishers[1]?.num ?? '')
-  const a = replay.drivers.find(d => d.num === numA)
-  const b = replay.drivers.find(d => d.num === numB)
+  const [numC, setNumC] = useState('')
+  const ref = replay.drivers.find(d => d.num === numRef)
 
-  const pts = useMemo(() => {
-    if (!a || !b) return []
-    const out: [number, number][] = []
-    const maxLap = Math.min(
-      a.laps.length ? a.laps[a.laps.length - 1][0] : 0,
-      b.laps.length ? b.laps[b.laps.length - 1][0] : 0,
-    )
-    for (let n = 1; n <= maxLap; n++) {
-      const ea = lapEnd(a, n)
-      const eb = lapEnd(b, n)
-      if (ea !== null && eb !== null) out.push([n, ea - eb])
-    }
-    return out
-  }, [a, b])
+  const series = useMemo(() => {
+    if (!ref) return []
+    return [numB, numC]
+      .map(num => replay.drivers.find(d => d.num === num))
+      .filter((d): d is ReplayDriver => !!d && d.num !== ref.num)
+      .map(d => {
+        const pts: [number, number][] = []
+        const maxLap = Math.min(
+          ref.laps.length ? ref.laps[ref.laps.length - 1][0] : 0,
+          d.laps.length ? d.laps[d.laps.length - 1][0] : 0,
+        )
+        for (let n = 1; n <= maxLap; n++) {
+          const er = lapEnd(ref, n)
+          const ed = lapEnd(d, n)
+          if (er !== null && ed !== null) pts.push([n, ed - er])
+        }
+        return { d, color: teamColor(d.team, colorIdx.get(d.num) ?? 0), pts }
+      })
+  }, [replay, ref, numB, numC, colorIdx])
 
-  const span = Math.max(...pts.map(p => Math.abs(p[1])), 1) * 1.1
-  const maxLap = pts.length ? pts[pts.length - 1][0] : 1
-  const x = (n: number) => ((n - 1) / Math.max(maxLap - 1, 1)) * W
-  const y = (v: number) => H / 2 - (v / span) * (H / 2)
-  const poly = pts.map(([n, v]) => `${x(n).toFixed(1)},${y(v).toFixed(1)}`).join(' ')
+  const span = Math.max(...series.flatMap(s => s.pts.map(p => Math.abs(p[1]))), 1) * 1.1
+  const maxLap = Math.max(...series.map(s => s.pts.length ? s.pts[s.pts.length - 1][0] : 1), 1)
+  const x = (n: number) => ((n - 1) / Math.max(maxLap - 1, 1)) * (W - 40)
+  const y = (v: number) => H / 2 - (v / span) * (H / 2 - 8)
 
   const tag = (d: ReplayDriver | undefined, color: string) => d && (
     <span className="tag" style={{ background: color, color: contrastColor(color) }}>{d.abbr}</span>
+  )
+  const pick = (value: string, onChange: (v: string) => void, optional: boolean) => (
+    <select value={value} onChange={e => onChange(e.target.value)}>
+      {optional && <option value="">—</option>}
+      {finishers.map(d => <option key={d.num} value={d.num}>{d.abbr}</option>)}
+    </select>
   )
 
   return (
     <div className="chart">
       <div className="chart-label">
-        Distacco per giro <span>sopra lo zero: <b style={{ color: COLOR_A }}>A</b> dietro ·
+        Distacco per giro <span>sopra lo zero: dietro il riferimento ·
         scala ±{span.toFixed(0)} s</span>
       </div>
       <div className="gap-pickers">
-        <span>A {tag(a, COLOR_A)}</span>
-        <select value={numA} onChange={e => setNumA(e.target.value)}>
-          {finishers.map(d => <option key={d.num} value={d.num}>{d.abbr}</option>)}
-        </select>
+        <span>riferimento {tag(ref, '#888')}</span>
+        {pick(numRef, setNumRef, false)}
         <span className="vs">vs</span>
-        <span>B {tag(b, COLOR_B)}</span>
-        <select value={numB} onChange={e => setNumB(e.target.value)}>
-          {finishers.map(d => <option key={d.num} value={d.num}>{d.abbr}</option>)}
-        </select>
+        {series[0] && tag(series[0].d, series[0].color)}
+        {pick(numB, setNumB, true)}
+        {series[1] && tag(series[1].d, series[1].color)}
+        {pick(numC, setNumC, true)}
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
         <line x1={0} x2={W} y1={H / 2} y2={H / 2} className="grid zero" />
-        <clipPath id="gap-above"><rect x={0} y={0} width={W} height={H / 2} /></clipPath>
-        <clipPath id="gap-below"><rect x={0} y={H / 2} width={W} height={H / 2} /></clipPath>
-        <polyline points={poly} fill="none" stroke={COLOR_A} strokeWidth="1.6" clipPath="url(#gap-above)" />
-        <polyline points={poly} fill="none" stroke={COLOR_B} strokeWidth="1.6" clipPath="url(#gap-below)" />
+        {series.map((s, i) => (
+          <polyline key={s.d.num}
+            points={s.pts.map(([n, v]) => `${x(n).toFixed(1)},${y(v).toFixed(1)}`).join(' ')}
+            fill="none" stroke={s.color} strokeWidth="1.6"
+            strokeDasharray={series.slice(0, i).some(o => o.color === s.color) ? '6 4' : undefined} />
+        ))}
       </svg>
-      <p className="axis-note">asse orizzontale: numero di giro — il tratto ha il colore del pilota in svantaggio</p>
+      <p className="axis-note">asse orizzontale: numero di giro — linea zero: il riferimento</p>
     </div>
   )
 }
@@ -413,12 +411,140 @@ function StrategyChart({ replay }: { replay: ReplayData }) {
   )
 }
 
+/** Tempi di pit stop: media delle traversate pit lane per squadra. */
+function PitTimesChart({ replay }: { replay: ReplayData }) {
+  const W = 1000
+  const H = 300
+  const padL = 56
+  const padB = 40
+  const padT = 24
+
+  const data = useMemo(() => {
+    const byTeam = new Map<string, { times: number[]; color: string }>()
+    const colorIdx = new Map(replay.drivers.map((d, i) => [d.num, i]))
+    replay.drivers.forEach(d => {
+      const times = d.pits
+        .filter(p => p[1] !== null && p[1] - p[0] <= 90)
+        .map(p => p[1]! - p[0])
+      if (!byTeam.has(d.team)) {
+        byTeam.set(d.team, { times: [], color: teamColor(d.team, colorIdx.get(d.num) ?? 0) })
+      }
+      byTeam.get(d.team)!.times.push(...times)
+    })
+    return [...byTeam.entries()]
+      .filter(([, v]) => v.times.length > 0)
+      .map(([team, v]) => ({
+        team,
+        color: v.color,
+        avg: v.times.reduce((s, t) => s + t, 0) / v.times.length,
+        n: v.times.length,
+      }))
+      .sort((a, b) => a.avg - b.avg)
+  }, [replay])
+
+  if (data.length === 0) return null
+  const mean = data.reduce((s, d) => s + d.avg * d.n, 0) / data.reduce((s, d) => s + d.n, 0)
+  const yMin = Math.floor(Math.min(...data.map(d => d.avg))) - 2
+  const yMax = Math.ceil(Math.max(...data.map(d => d.avg))) + 2
+  const y = (v: number) => padT + ((yMax - v) / (yMax - yMin)) * (H - padT - padB)
+  const slot = (W - padL) / data.length
+  const bw = Math.min(slot * 0.55, 60)
+
+  return (
+    <div className="chart">
+      <div className="chart-label">Tempi di pit stop <span>media delle traversate pit lane per squadra (ingresso → uscita)</span></div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="lap-chart">
+        {Array.from({ length: yMax - yMin + 1 }, (_, i) => yMin + i).map(v => (
+          <g key={v}>
+            <line x1={padL} x2={W} y1={y(v)} y2={y(v)} className="grid" />
+            <text x={padL - 6} y={y(v)} textAnchor="end" fill="#666" fontSize="10"
+              dominantBaseline="middle">{v}s</text>
+          </g>
+        ))}
+        {data.map((d, i) => {
+          const cx = padL + slot * i + slot / 2
+          return (
+            <g key={d.team}>
+              <rect x={cx - bw / 2} y={y(d.avg)} width={bw} height={y(yMin) - y(d.avg)}
+                fill={d.color} rx="2" />
+              <text x={cx} y={y(d.avg) - 6} textAnchor="middle" fill="#ccc" fontSize="11">
+                {d.avg.toFixed(2)}s
+              </text>
+              <text x={cx} y={H - padB + 14} textAnchor="middle" fill={d.color} fontSize="10">
+                {d.team.length > 12 ? d.team.slice(0, 11) + '…' : d.team}
+              </text>
+            </g>
+          )
+        })}
+        <line x1={padL} x2={W - 90} y1={y(mean)} y2={y(mean)} stroke="#888"
+          strokeWidth="1" strokeDasharray="3 3" />
+        <text x={W - 86} y={y(mean)} fill="#888" fontSize="10"
+          dominantBaseline="middle">media {mean.toFixed(2)}s</text>
+      </svg>
+    </div>
+  )
+}
+
+/** Velocita' massima di ogni pilota nella sessione. */
+function TopSpeedChart({ replay }: { replay: ReplayData }) {
+  const W = 1000
+  const H = 300
+  const padL = 56
+  const padB = 26
+  const padT = 24
+
+  const data = useMemo(() => {
+    const colorIdx = new Map(replay.drivers.map((d, i) => [d.num, i]))
+    return replay.drivers
+      .filter(d => d.top_speed !== null)
+      .map(d => ({ d, color: teamColor(d.team, colorIdx.get(d.num) ?? 0), v: d.top_speed! }))
+      .sort((a, b) => b.v - a.v)
+  }, [replay])
+
+  if (data.length === 0) return null
+  const yMin = Math.floor(Math.min(...data.map(x => x.v)) / 10) * 10 - 10
+  const yMax = Math.ceil(Math.max(...data.map(x => x.v)) / 10) * 10
+  const y = (v: number) => padT + ((yMax - v) / (yMax - yMin)) * (H - padT - padB)
+  const slot = (W - padL) / data.length
+  const bw = Math.min(slot * 0.55, 34)
+
+  return (
+    <div className="chart">
+      <div className="chart-label">Velocità massime <span>picco della sessione per pilota, km/h</span></div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="lap-chart">
+        {Array.from({ length: (yMax - yMin) / 10 + 1 }, (_, i) => yMin + i * 10).map(v => (
+          <g key={v}>
+            <line x1={padL} x2={W} y1={y(v)} y2={y(v)} className="grid" />
+            <text x={padL - 6} y={y(v)} textAnchor="end" fill="#666" fontSize="10"
+              dominantBaseline="middle">{v}</text>
+          </g>
+        ))}
+        {data.map((x, i) => {
+          const cx = padL + slot * i + slot / 2
+          return (
+            <g key={x.d.num}>
+              <rect x={cx - bw / 2} y={y(x.v)} width={bw} height={y(yMin) - y(x.v)}
+                fill={x.color} rx="2" />
+              <text x={cx} y={y(x.v) - 5} textAnchor="middle" fill="#ccc" fontSize="10">
+                {x.v.toFixed(0)}
+              </text>
+              <text x={cx} y={H - 8} textAnchor="middle" fill={x.color} fontSize="10">{x.d.abbr}</text>
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
+
 export default function Charts({ replay }: Props) {
   return (
     <div className="charts">
       <PaceChart replay={replay} />
       <AvgGapChart replay={replay} />
       <StrategyChart replay={replay} />
+      <PitTimesChart replay={replay} />
+      <TopSpeedChart replay={replay} />
       <LapChart replay={replay} />
       <GapChart replay={replay} />
     </div>

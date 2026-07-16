@@ -26,6 +26,8 @@ export interface ReplayDriver {
   num: string
   abbr: string
   team: string
+  /** velocita' massima della sessione in km/h (null se non disponibile) */
+  top_speed: number | null
   /** campioni grezzi [t (s dallo start), x, y] in 1/10 di metro */
   points: [number, number, number][]
   /** finestre pit lane [t ingresso, t uscita | null se mai uscito] */

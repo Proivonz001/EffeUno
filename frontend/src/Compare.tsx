@@ -13,8 +13,8 @@ interface Sel {
   lap: number
 }
 
-const COLOR_A = '#4da3ff'
-const COLOR_B = '#ff8000'
+/** colori dei tre giri confrontabili: A (riferimento), B, C */
+const COLORS = ['#4da3ff', '#ff8000', '#2ecc71']
 
 function fmtLap(s: number | null): string {
   if (s === null) return '—'
@@ -34,42 +34,6 @@ function path(xs: number[], ys: number[], w: number, h: number,
   return pts.join(' ')
 }
 
-function Chart({ a, b, field, height, label, unit }: {
-  a: LapTelemetry | null
-  b: LapTelemetry | null
-  field: 'speed' | 'throttle' | 'brake'
-  height: number
-  label: string
-  unit: string
-}) {
-  const W = 1000
-  const series = [a, b].map(tel =>
-    tel ? { dist: tel.distance, vals: tel[field].map(Number) } : null)
-  const xMax = Math.max(...series.filter(Boolean).map(s => s!.dist[s!.dist.length - 1]), 1)
-  const yMax = field === 'speed'
-    ? Math.max(...series.filter(Boolean).flatMap(s => s!.vals), 1) * 1.05
-    : field === 'throttle' ? 100 : 1
-
-  return (
-    <div className="chart">
-      <div className="chart-label">{label} <span>{unit}</span></div>
-      <svg viewBox={`0 0 ${W} ${height}`} preserveAspectRatio="none">
-        {[0.25, 0.5, 0.75].map(f => (
-          <line key={f} x1={0} x2={W} y1={height * f} y2={height * f} className="grid" />
-        ))}
-        {series[0] && (
-          <polyline points={path(series[0].dist, series[0].vals, W, height, xMax, 0, yMax)}
-            fill="none" stroke={COLOR_A} strokeWidth="1.5" />
-        )}
-        {series[1] && (
-          <polyline points={path(series[1].dist, series[1].vals, W, height, xMax, 0, yMax)}
-            fill="none" stroke={COLOR_B} strokeWidth="1.5" />
-        )}
-      </svg>
-    </div>
-  )
-}
-
 /** interpolazione lineare di ys su xs (crescente) nel punto x */
 function interp(xs: number[], ys: number[], x: number): number {
   if (x <= xs[0]) return ys[0]
@@ -85,88 +49,128 @@ function interp(xs: number[], ys: number[], x: number): number {
   return ys[lo] + (ys[hi] - ys[lo]) * f
 }
 
-/** Delta cumulativo tB(d) − tA(d): sopra lo zero B e' dietro, sotto A e' dietro.
- *  I due tratti sono colorati col colore del giro in svantaggio. */
-function DeltaChart({ a, b }: {
-  a: LapTelemetry | null
-  b: LapTelemetry | null
-}) {
+const lastDist = (t: LapTelemetry) => t.distance[t.distance.length - 1]
+
+/** Delta cumulativo di ogni giro rispetto al giro A (riferimento):
+ *  sopra lo zero il giro e' in ritardo su A. */
+function DeltaChart({ tels }: { tels: (LapTelemetry | null)[] }) {
   const W = 1000
   const H = 140
-  if (!a || !b) return null
+  const ref = tels[0]
+  const others = tels.slice(1).map((t, i) => ({ tel: t, color: COLORS[i + 1] }))
+    .filter(o => o.tel !== null)
+  if (!ref || others.length === 0) return null
 
-  // stesso asse orizzontale degli altri grafici
-  const xMax = Math.max(a.distance[a.distance.length - 1], b.distance[b.distance.length - 1], 1)
-  const dMax = Math.min(a.distance[a.distance.length - 1], b.distance[b.distance.length - 1])
-  const dist: number[] = []
-  const delta: number[] = []
-  for (const d of a.distance) {
-    if (d > dMax) break
-    dist.push(d)
-    delta.push(interp(b.distance, b.time, d) - interp(a.distance, a.time, d))
-  }
-  const span = Math.max(Math.max(...delta.map(Math.abs)) * 1.1, 0.05)
-  const pts = path(dist, delta, W, H, xMax, -span, span)
+  const xMax = Math.max(...tels.filter(Boolean).map(t => lastDist(t!)), 1)
+  const series = others.map(({ tel, color }) => {
+    const dMax = Math.min(lastDist(ref), lastDist(tel!))
+    const dist: number[] = []
+    const delta: number[] = []
+    for (const d of ref.distance) {
+      if (d > dMax) break
+      dist.push(d)
+      delta.push(interp(tel!.distance, tel!.time, d) - interp(ref.distance, ref.time, d))
+    }
+    return { dist, delta, color }
+  })
+  const span = Math.max(...series.flatMap(s => s.delta.map(Math.abs)), 0.05) * 1.1
   const zeroY = H / 2
 
   return (
     <div className="chart">
       <div className="chart-label">
-        Δ tempo cumulativo <span>scala ±{span.toFixed(1)} s — il tratto ha il colore
-        del giro in svantaggio</span>
+        Δ tempo cumulativo <span>rispetto ad <b style={{ color: COLORS[0] }}>A</b> —
+        sopra lo zero: in ritardo · scala ±{span.toFixed(1)} s</span>
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
         <line x1={0} x2={W} y1={zeroY} y2={zeroY} className="grid zero" />
-        <clipPath id="delta-above">
-          <rect x={0} y={0} width={W} height={zeroY} />
-        </clipPath>
-        <clipPath id="delta-below">
-          <rect x={0} y={zeroY} width={W} height={H - zeroY} />
-        </clipPath>
-        <polyline points={pts} fill="none" stroke={COLOR_B} strokeWidth="1.5"
-          clipPath="url(#delta-above)" />
-        <polyline points={pts} fill="none" stroke={COLOR_A} strokeWidth="1.5"
-          clipPath="url(#delta-below)" />
+        {series.map((s, i) => (
+          <polyline key={i} points={path(s.dist, s.delta, W, H, xMax, -span, span)}
+            fill="none" stroke={s.color} strokeWidth="1.5" />
+        ))}
       </svg>
     </div>
   )
 }
 
-function LapPicker({ laps, sel, onChange, color }: {
+function Chart({ tels, field, height, label, unit }: {
+  tels: (LapTelemetry | null)[]
+  field: 'speed' | 'throttle' | 'brake'
+  height: number
+  label: string
+  unit: string
+}) {
+  const W = 1000
+  const series = tels.map(tel =>
+    tel ? { dist: tel.distance, vals: tel[field].map(Number) } : null)
+  const present = series.filter(Boolean).map(s => s!)
+  if (present.length === 0) return null
+  const xMax = Math.max(...present.map(s => s.dist[s.dist.length - 1]), 1)
+  const yMax = field === 'speed'
+    ? Math.max(...present.flatMap(s => s.vals), 1) * 1.05
+    : field === 'throttle' ? 100 : 1
+
+  return (
+    <div className="chart">
+      <div className="chart-label">{label} <span>{unit}</span></div>
+      <svg viewBox={`0 0 ${W} ${height}`} preserveAspectRatio="none">
+        {[0.25, 0.5, 0.75].map(f => (
+          <line key={f} x1={0} x2={W} y1={height * f} y2={height * f} className="grid" />
+        ))}
+        {series.map((s, i) => s && (
+          <polyline key={i} points={path(s.dist, s.vals, W, height, xMax, 0, yMax)}
+            fill="none" stroke={COLORS[i]} strokeWidth="1.5" />
+        ))}
+      </svg>
+    </div>
+  )
+}
+
+function LapPicker({ laps, sel, onChange, color, optional }: {
   laps: LapInfo[]
-  sel: Sel
-  onChange: (s: Sel) => void
+  sel: Sel | null
+  onChange: (s: Sel | null) => void
   color: string
+  optional?: boolean
 }) {
   const drivers = useMemo(() => [...new Set(laps.map(l => l.driver))].sort(), [laps])
-  const driverLaps = laps.filter(l => l.driver === sel.driver && l.time_s !== null)
+  const driverLaps = sel ? laps.filter(l => l.driver === sel.driver && l.time_s !== null) : []
   return (
-    <span className="lap-picker" style={{ borderColor: color }}>
-      <select value={sel.driver} onChange={e => {
+    <span className="lap-picker" style={{ borderColor: sel ? color : '#444' }}>
+      <select value={sel?.driver ?? ''} onChange={e => {
         const driver = e.target.value
+        if (!driver) return onChange(null)
         const first = laps.find(l => l.driver === driver && l.time_s !== null)
         onChange({ driver, lap: first?.lap ?? 1 })
       }}>
+        {optional && <option value="">—</option>}
         {drivers.map(d => <option key={d} value={d}>{d}</option>)}
       </select>
-      <select value={sel.lap} onChange={e => onChange({ ...sel, lap: Number(e.target.value) })}>
-        {driverLaps.map(l => (
-          <option key={l.lap} value={l.lap}>
-            G{l.lap} — {fmtLap(l.time_s)}{l.accurate ? '' : ' ⚠'}
-          </option>
-        ))}
-      </select>
+      {sel && (
+        <select value={sel.lap} onChange={e => onChange({ ...sel, lap: Number(e.target.value) })}>
+          {driverLaps.map(l => (
+            <option key={l.lap} value={l.lap}>
+              G{l.lap} — {fmtLap(l.time_s)}{l.accurate ? '' : ' ⚠'}
+            </option>
+          ))}
+        </select>
+      )}
     </span>
   )
 }
 
 export default function Compare({ year, event, session }: Props) {
   const [laps, setLaps] = useState<LapInfo[]>([])
-  const [selA, setSelA] = useState<Sel | null>(null)
-  const [selB, setSelB] = useState<Sel | null>(null)
-  const [telA, setTelA] = useState<LapTelemetry | null>(null)
-  const [telB, setTelB] = useState<LapTelemetry | null>(null)
+  const [sels, setSels] = useState<(Sel | null)[]>([null, null, null])
+  const [tels, setTels] = useState<(LapTelemetry | null)[]>([null, null, null])
   const [error, setError] = useState('')
+
+  const setSel = (i: number) => (sel: Sel | null) =>
+    setSels(prev => {
+      const next = [...prev]
+      next[i] = sel
+      return next
+    })
 
   useEffect(() => {
     getLaps(year, event, session).then(ls => {
@@ -176,24 +180,40 @@ export default function Compare({ year, event, session }: Props) {
         .sort((a, b) => a.time_s! - b.time_s!)
       const a = valid[0]
       const b = valid.find(l => l.driver !== a?.driver)
-      if (a) setSelA({ driver: a.driver, lap: a.lap })
-      if (b) setSelB({ driver: b.driver, lap: b.lap })
+      setSels([
+        a ? { driver: a.driver, lap: a.lap } : null,
+        b ? { driver: b.driver, lap: b.lap } : null,
+        null,
+      ])
     }).catch(e => setError(String(e)))
   }, [year, event, session])
 
-  useEffect(() => {
-    if (!selA) return
-    setTelA(null)
-    getLapTelemetry(year, event, session, selA.driver, selA.lap)
-      .then(setTelA).catch(e => setError(String(e)))
-  }, [year, event, session, selA])
-
-  useEffect(() => {
-    if (!selB) return
-    setTelB(null)
-    getLapTelemetry(year, event, session, selB.driver, selB.lap)
-      .then(setTelB).catch(e => setError(String(e)))
-  }, [year, event, session, selB])
+  // un effetto per slot: setSel preserva l'identita' degli altri elementi,
+  // quindi cambia solo il fetch del giro toccato
+  for (const i of [0, 1, 2]) {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    useEffect(() => {
+      const sel = sels[i]
+      setTels(prev => {
+        const next = [...prev]
+        next[i] = null
+        return next
+      })
+      if (!sel) return
+      let stale = false
+      getLapTelemetry(year, event, session, sel.driver, sel.lap)
+        .then(tel => {
+          if (stale) return
+          setTels(prev => {
+            const next = [...prev]
+            next[i] = tel
+            return next
+          })
+        })
+        .catch(e => setError(String(e)))
+      return () => { stale = true }
+    }, [year, event, session, sels[i]])
+  }
 
   const info = (sel: Sel | null) => {
     const l = laps.find(x => sel && x.driver === sel.driver && x.lap === sel.lap)
@@ -201,24 +221,28 @@ export default function Compare({ year, event, session }: Props) {
   }
 
   if (error) return <p className="error">{error}</p>
-  if (!selA || !selB) return <p className="hint">Carico la lista giri…</p>
+  if (!sels[0] || !sels[1]) return <p className="hint">Carico la lista giri…</p>
+
+  const loading = sels.some((s, i) => s !== null && tels[i] === null)
 
   return (
     <div className="compare">
       <div className="compare-bar">
-        <LapPicker laps={laps} sel={selA} onChange={setSelA} color={COLOR_A} />
+        <LapPicker laps={laps} sel={sels[0]} onChange={setSel(0)} color={COLORS[0]} />
         <span className="vs">vs</span>
-        <LapPicker laps={laps} sel={selB} onChange={setSelB} color={COLOR_B} />
+        <LapPicker laps={laps} sel={sels[1]} onChange={setSel(1)} color={COLORS[1]} />
+        <LapPicker laps={laps} sel={sels[2]} onChange={setSel(2)} color={COLORS[2]} optional />
         <span className="legend">
-          <span style={{ color: COLOR_A }}>■ {info(selA)}</span>
-          <span style={{ color: COLOR_B }}>■ {info(selB)}</span>
+          {sels.map((sel, i) => sel && (
+            <span key={i} style={{ color: COLORS[i] }}>■ {info(sel)}</span>
+          ))}
         </span>
       </div>
-      {(!telA || !telB) && <p className="hint">Carico la telemetria…</p>}
-      <DeltaChart a={telA} b={telB} />
-      <Chart a={telA} b={telB} field="speed" height={260} label="Velocità" unit="km/h" />
-      <Chart a={telA} b={telB} field="throttle" height={110} label="Acceleratore" unit="%" />
-      <Chart a={telA} b={telB} field="brake" height={60} label="Freno" unit="on/off" />
+      {loading && <p className="hint">Carico la telemetria…</p>}
+      <DeltaChart tels={tels} />
+      <Chart tels={tels} field="speed" height={260} label="Velocità" unit="km/h" />
+      <Chart tels={tels} field="throttle" height={110} label="Acceleratore" unit="%" />
+      <Chart tels={tels} field="brake" height={60} label="Freno" unit="on/off" />
       <p className="axis-note">asse orizzontale: distanza lungo il giro</p>
     </div>
   )
