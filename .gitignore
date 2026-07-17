@@ -29,3 +29,5 @@ output/
 Thumbs.db
 live_streams/
 frontend/.pages-sim/
+.secrets/
+site_data/
