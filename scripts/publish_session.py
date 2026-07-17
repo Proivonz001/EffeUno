@@ -85,27 +85,31 @@ def upload_dir(base: Path, rel_prefix: str) -> None:
         print(f"  index.json aggiornato — totale caricato {total/1e6:.1f} MB")
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("year", type=int)
-    ap.add_argument("event")
-    ap.add_argument("session", choices=["R", "Q", "S", "SQ"])
-    ap.add_argument("--out", default=str(ROOT / "site_data"))
-    ap.add_argument("--r2", action="store_true", help="carica su R2 alla fine")
-    ap.add_argument("--skip-telemetry", action="store_true",
-                    help="salta i pacchetti pilota (molto piu' veloce)")
-    args = ap.parse_args()
+def fetch_remote_catalog() -> dict | None:
+    """Catalogo corrente da R2: il merge evita che macchine diverse
+    (PC, VM, GitHub Actions) si sovrascrivano le voci a vicenda."""
+    import gzip
+    try:
+        s3 = r2_client()
+        body = s3.get_object(Bucket=BUCKET, Key="index.json")["Body"].read()
+        if body[:2] == b"\x1f\x8b":
+            body = gzip.decompress(body)
+        return json.loads(body)
+    except Exception:
+        return None
 
+
+def publish(year: int, event: str, session: str, out_base: Path,
+            to_r2: bool = False, skip_telemetry: bool = False) -> None:
     from backend.app.sources.fastf1_source import FastF1Source
 
-    print(f"carico {args.year} / {args.event} / {args.session}...")
+    print(f"carico {year} / {event} / {session}...")
     src = FastF1Source()
-    sess = src.load_session(args.year, args.event, args.session)
+    sess = src.load_session(year, event, session)
     info = sess.info()
 
-    base = Path(args.out)
-    rel = f"{args.year}/{slug(args.event)}/{args.session}"
-    out = base / rel
+    rel = f"{year}/{slug(event)}/{session}"
+    out = out_base / rel
 
     n = write(out / "replay.json", sess.replay())
     print(f"replay.json ({n/1e6:.1f} MB)")
@@ -114,7 +118,7 @@ def main() -> int:
     write(out / "laps.json", laps)
     print(f"feed.json + laps.json ({len(laps)} giri)")
 
-    if not args.skip_telemetry:
+    if not skip_telemetry:
         # pacchetti per pilota: tutti i giri con telemetria in un file
         by_driver: dict[str, list[int]] = {}
         for lap in laps:
@@ -131,18 +135,19 @@ def main() -> int:
             print(f"  [{d_i}/{len(by_driver)}] drivers/{abbr}.json "
                   f"({len(bundle)} giri, {n/1e6:.1f} MB)")
 
-    # catalogo: aggiungi/aggiorna la voce e riscrivi
-    idx_path = base / "index.json"
-    catalog = json.loads(idx_path.read_text()) if idx_path.exists() else {"sessions": []}
+    # catalogo: parte dal remoto se disponibile, poi merge della voce
+    idx_path = out_base / "index.json"
+    catalog = (fetch_remote_catalog() if to_r2 else None) \
+        or (json.loads(idx_path.read_text()) if idx_path.exists() else {"sessions": []})
     try:
         event_date = str(sess._s.event["EventDate"].date())  # noqa: SLF001
     except Exception:
         event_date = None
     entry = {
-        "year": args.year,
-        "event": info.get("event", args.event),
-        "session": args.session,
-        "session_name": info.get("session", args.session),
+        "year": year,
+        "event": info.get("event", event),
+        "session": session,
+        "session_name": info.get("session", session),
         "path": rel,
         "drivers": len(info.get("drivers", [])),
         "date": event_date,
@@ -153,9 +158,23 @@ def main() -> int:
     write(idx_path, catalog)
     print(f"catalogo: {len(catalog['sessions'])} sessioni")
 
-    if args.r2:
+    if to_r2:
         print("upload su R2...")
-        upload_dir(base, rel)
+        upload_dir(out_base, rel)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("year", type=int)
+    ap.add_argument("event")
+    ap.add_argument("session", choices=["R", "Q", "S", "SQ"])
+    ap.add_argument("--out", default=str(ROOT / "site_data"))
+    ap.add_argument("--r2", action="store_true", help="carica su R2 alla fine")
+    ap.add_argument("--skip-telemetry", action="store_true",
+                    help="salta i pacchetti pilota (molto piu' veloce)")
+    args = ap.parse_args()
+    publish(args.year, args.event, args.session, Path(args.out),
+            to_r2=args.r2, skip_telemetry=args.skip_telemetry)
     return 0
 
 
