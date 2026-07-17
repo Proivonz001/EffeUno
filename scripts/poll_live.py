@@ -1,5 +1,12 @@
-"""Registra una sessione live SENZA abbonamento, a polling degli endpoint
-statici livetiming (i file .jsonStream crescono durante la sessione).
+"""Scarica i file stream di una sessione dagli endpoint statici livetiming.
+
+ESITO DEL TEST DAL VIVO (Spa FP1, 2026-07-17): durante la sessione i
+topic .jsonStream rispondono HTTP 403 — l'accesso live senza abbonamento
+NON e' possibile (ne' qui, ne' via OpenF1, che durante le sessioni chiede
+una API key). I file si sbloccano alla fine della sessione: lanciato
+durante o poco dopo, questo script li scarica appena disponibili, dando
+un "replay pochi minuti dopo la bandiera". Per il live vero serve F1TV
+(scripts/record_live.py, canale SignalR autenticato).
 
 Uso (da lanciare poco prima o durante la sessione):
     .venv/Scripts/python.exe scripts/poll_live.py --label spa_fp1
@@ -45,24 +52,59 @@ def get_json(url: str):
 
 
 def streaming_online() -> bool:
+    """Durante i weekend lo status e' 'Available' (visto a Spa 2026), fuori
+    e' 'Offline': tutto cio' che non e' Offline conta come attivo."""
     try:
-        return get_json(BASE + "StreamingStatus.json").get("Status") == "Online"
+        return get_json(BASE + "StreamingStatus.json").get("Status") != "Offline"
     except Exception:
         return False
 
 
 def discover_path() -> str | None:
-    """Path della sessione corrente dall'indice di stagione: l'ultima
-    sessione che espone un Path."""
+    """Path della sessione corrente. L'indice di stagione viene aggiornato
+    in ritardo (a Spa mostrava ancora il meeting precedente a sessione in
+    corso), quindi se non basta si costruisce il path dal calendario
+    fastf1: /anno/{data_gara}_{Evento}/{data_sessione}_{Sessione}/ e lo si
+    valida con SessionInfo.json."""
     year = datetime.utcnow().year
-    idx = get_json(f"{BASE}{year}/Index.json")
     best = None
-    for meeting in idx.get("Meetings", []):
-        for session in meeting.get("Sessions", []):
-            if session.get("Path"):
-                best = (meeting["Name"], session["Name"], session["Path"])
+    try:
+        idx = get_json(f"{BASE}{year}/Index.json")
+        for meeting in idx.get("Meetings", []):
+            for session in meeting.get("Sessions", []):
+                if session.get("Path"):
+                    best = (meeting["Name"], session["Name"], session["Path"])
+    except Exception:
+        pass
+
+    # fallback: costruisci il path di oggi dal calendario
+    try:
+        import fastf1
+        import pandas as pd
+        fastf1.Cache.enable_cache(
+            str(Path(__file__).resolve().parents[1] / "fastf1_cache"))
+        sched = fastf1.get_event_schedule(year, include_testing=False)
+        now = pd.Timestamp.utcnow().tz_localize(None)
+        for _, ev in sched.iterrows():
+            for k in range(1, 6):
+                d = ev.get(f"Session{k}DateUtc")
+                if pd.isna(d) or not (-4 * 3600 < (now - d).total_seconds() < 5 * 3600):
+                    continue
+                race_date = ev["Session5DateUtc"].strftime("%Y-%m-%d")
+                event_dir = str(ev["EventName"]).replace(" ", "_")
+                sess_dir = (d.strftime("%Y-%m-%d") + "_"
+                            + str(ev[f"Session{k}"]).replace(" ", "_"))
+                guess = f"{year}/{race_date}_{event_dir}/{sess_dir}/"
+                r = requests.get(BASE + guess + "SessionInfo.json", timeout=10)
+                if r.status_code == 200:
+                    print(f"sessione (dal calendario): {ev['EventName']} / "
+                          f"{ev[f'Session{k}']} -> {guess}")
+                    return guess
+    except Exception as exc:
+        print(f"fallback calendario fallito: {exc}")
+
     if best:
-        print(f"sessione: {best[0]} / {best[1]} -> {best[2]}")
+        print(f"sessione (dall'indice): {best[0]} / {best[1]} -> {best[2]}")
         return best[2]
     return None
 
