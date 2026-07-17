@@ -13,7 +13,14 @@ from .store import SessionStore
 app = FastAPI(title="EffeUno API")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=[
+        "http://localhost:5173", "http://127.0.0.1:5173",
+        # simulazione locale di GitHub Pages (frontend/.pages-sim)
+        "http://localhost:4173",
+        # UI pubblica: la pagina puo' chiedere i dati al backend personale
+        # (raggiungibile solo dai dispositivi del proprietario via Tailscale)
+        "https://proivonz001.github.io",
+    ],
     allow_methods=["GET"],
     allow_headers=["*"],
 )

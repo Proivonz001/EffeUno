@@ -106,9 +106,22 @@ export interface LapTelemetry {
   y: number[]
 }
 
+/** Backend configurabile a runtime: aprendo la pagina con ?api=https://...
+ *  (es. l'URL Tailscale Serve del proprio PC) i dati arrivano da quel
+ *  backend invece che dalla demo; la scelta resta salvata nel browser.
+ *  ?api= (vuoto) torna alla demo. */
+const _params = new URLSearchParams(window.location.search)
+if (_params.has('api')) {
+  const v = _params.get('api') ?? ''
+  if (v) localStorage.setItem('effeuno-api', v.replace(/\/$/, ''))
+  else localStorage.removeItem('effeuno-api')
+}
+export const API_BASE = localStorage.getItem('effeuno-api') ?? ''
+
 /** Build demo (GitHub Pages): dati SINTETICI impacchettati con la pagina,
- *  nessun backend e nessun dato F1. Generati da scripts/gen_demo_data.py. */
-export const DEMO = import.meta.env.VITE_DEMO === '1'
+ *  nessun backend e nessun dato F1. Generati da scripts/gen_demo_data.py.
+ *  Con un backend configurato (?api=...) la demo si spegne. */
+export const DEMO = import.meta.env.VITE_DEMO === '1' && !API_BASE
 const demo = (name: string) => `${import.meta.env.BASE_URL}demo/${name}`
 
 async function json<T>(url: string): Promise<T> {
@@ -118,31 +131,31 @@ async function json<T>(url: string): Promise<T> {
 }
 
 export const getEvents = (year: number) =>
-  json<EventInfo[]>(DEMO ? demo('events.json') : `/api/events/${year}`)
+  json<EventInfo[]>(DEMO ? demo('events.json') : `${API_BASE}/api/events/${year}`)
 
 const sessionPath = (year: number, event: string, session: string) =>
   `${year}/${encodeURIComponent(event)}/${session}`
 
 export const getSessionInfo = (year: number, event: string, session: string) =>
   json<SessionInfo>(DEMO ? demo('session.json')
-    : `/api/session/${sessionPath(year, event, session)}`)
+    : `${API_BASE}/api/session/${sessionPath(year, event, session)}`)
 
 export const getReplay = (year: number, event: string, session: string) =>
   json<ReplayData>(DEMO ? demo('replay.json')
-    : `/api/replay/${sessionPath(year, event, session)}`)
+    : `${API_BASE}/api/replay/${sessionPath(year, event, session)}`)
 
 export const getLaps = (year: number, event: string, session: string) =>
   json<LapInfo[]>(DEMO ? demo('laps.json')
-    : `/api/laps/${sessionPath(year, event, session)}`)
+    : `${API_BASE}/api/laps/${sessionPath(year, event, session)}`)
 
 export const getFeed = (year: number, event: string, session: string) =>
   json<FeedData>(DEMO ? demo('feed.json')
-    : `/api/feed/${sessionPath(year, event, session)}`)
+    : `${API_BASE}/api/feed/${sessionPath(year, event, session)}`)
 
 export const getLapTelemetry = (
   year: number, event: string, session: string, driver: string, lap: number,
 ) => json<LapTelemetry>(DEMO ? demo(`tel_${driver}_${lap}.json`)
-  : `/api/telemetry/${sessionPath(year, event, session)}/${driver}/${lap}`)
+  : `${API_BASE}/api/telemetry/${sessionPath(year, event, session)}/${driver}/${lap}`)
 
 /** Polla lo stato finche' la sessione non e' pronta (il primo load puo' richiedere secondi). */
 export async function waitForSession(
