@@ -223,6 +223,32 @@ class FastF1Session(LoadedSession):
             ])
         return zones, detections
 
+    def _sector_flags(self) -> list[list[float]]:
+        """Bandiere nei settori marshal dai messaggi direzione gara:
+        [t, settore, codice] con 2 = gialla, 3 = doppia gialla, 0 = libero.
+        La geometria dei settori NON e' nel feed: il frontend la approssima
+        dividendo il nastro in tratti uguali numerati dal traguardo."""
+        out: list[list[float]] = []
+        rcm = self._s.race_control_messages
+        if rcm is None or rcm.empty:
+            return out
+        t0_date = self._s.t0_date
+        for _, m in rcm.iterrows():
+            if pd.isna(m["Time"]):
+                continue
+            msg = str(m["Message"]).upper()
+            sec = re.search(r"IN TRACK SECTOR (\d+)", msg)
+            if sec is None:
+                continue
+            code = (0 if "CLEAR" in msg
+                    else 3 if "DOUBLE YELLOW" in msg
+                    else 2 if "YELLOW" in msg else None)
+            if code is None:
+                continue
+            t = round((m["Time"] - t0_date).total_seconds() - self._t0, 1)
+            out.append([t, int(sec.group(1)), code])
+        return out
+
     @staticmethod
     def _pit_lane_polyline(drivers: list[dict[str, Any]]) -> list[list[float]]:
         """Percorso della pit lane: la traversata dei box reale (ingresso ->
@@ -305,6 +331,7 @@ class FastF1Session(LoadedSession):
             "sector_marks": self._sector_marks(ref_lap, tel),
             "drs_zones": drs_zones,
             "detection_points": detection_points,
+            "sector_flags": self._sector_flags(),
             "drivers": drivers,
             "track_status": track_status,
         }

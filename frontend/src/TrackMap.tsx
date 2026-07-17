@@ -56,6 +56,19 @@ export default function TrackMap({ replay, time, focus, onFocus, wind }: Props) 
       y0: Math.min(...ys), y1: Math.max(...ys),
     }
 
+    // lunghezza cumulata lungo il nastro: serve per approssimare i settori
+    // marshal (il feed da' solo il numero, non la geometria) come tratti
+    // uguali numerati dal traguardo
+    const cum: number[] = [0]
+    for (let i = 1; i < replay.track.length; i++) {
+      cum.push(cum[i - 1] + Math.hypot(
+        replay.track[i][0] - replay.track[i - 1][0],
+        replay.track[i][1] - replay.track[i - 1][1],
+      ))
+    }
+    const totalLen = cum[cum.length - 1] || 1
+    const maxSector = Math.max(...replay.sector_flags.map(f => f[1]), 0)
+
     const toScreen = (x: number, y: number): [number, number] => {
       const pad = 30 * devicePixelRatio
       const s = Math.min(
@@ -124,9 +137,11 @@ export default function TrackMap({ replay, time, focus, onFocus, wind }: Props) 
       const t = timeRef.current
       ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-      // nastro pista, tinto secondo la bandiera corrente
+      // nastro pista, tinto secondo la bandiera corrente. Con la gialla
+      // semplice, se abbiamo i settori marshal si tingono solo quelli
       const status = trackStatusAt(replay.track_status, t)
-      ctx.strokeStyle = TRACK_TINT[status] ?? '#3a3a3a'
+      const localYellow = status === 2 && maxSector > 0
+      ctx.strokeStyle = (localYellow ? undefined : TRACK_TINT[status]) ?? '#3a3a3a'
       ctx.lineWidth = 7 * dpr * Math.sqrt(viewRef.current.z)
       ctx.lineJoin = 'round'
       ctx.beginPath()
@@ -150,6 +165,32 @@ export default function TrackMap({ replay, time, focus, onFocus, wind }: Props) 
         ctx.stroke()
       })
       ctx.lineWidth = ribbon
+
+      // settori marshal con bandiera gialla al tempo t: tratti approssimati
+      // (lunghezze uguali dal traguardo), doppia gialla piu' accesa
+      if (maxSector > 0) {
+        const active = new Map<number, number>()
+        for (const [ts, sec, code] of replay.sector_flags) {
+          if (ts > t) break
+          if (code === 0) active.delete(sec)
+          else active.set(sec, code)
+        }
+        for (const [sec, code] of active) {
+          const d0 = ((sec - 1) / maxSector) * totalLen
+          const d1 = (sec / maxSector) * totalLen
+          ctx.strokeStyle = code === 3 ? '#d1a91c' : '#a8891c'
+          ctx.beginPath()
+          let started = false
+          for (let i = 0; i < replay.track.length; i++) {
+            if (cum[i] < d0) continue
+            if (cum[i] > d1) break
+            const [x, y] = toScreen(replay.track[i][0], replay.track[i][1])
+            if (!started) { ctx.moveTo(x, y); started = true }
+            else ctx.lineTo(x, y)
+          }
+          ctx.stroke()
+        }
+      }
 
       // confini settore: tacca perpendicolare al nastro con etichetta
       const tick = (px: number, py: number, qx: number, qy: number,
@@ -357,5 +398,5 @@ export default function TrackMap({ replay, time, focus, onFocus, wind }: Props) 
     }
   }, [replay, colors, retireAt])
 
-  return <canvas ref={canvasRef} className="track-map" title="rotellina: zoom — trascina: sposta — doppio click: reset" />
+  return <canvas ref={canvasRef} className="track-map" title="rotellina: zoom — trascina: sposta — doppio click: reset — click su un pilota: focus — tratti gialli: settori marshal, posizione approssimata" />
 }

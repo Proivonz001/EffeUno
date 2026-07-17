@@ -55,6 +55,9 @@ export interface ReplayData {
   drs_zones: [number, number][][]
   /** punti di detection (<1s dal pilota davanti); vuoto se non nei dati */
   detection_points: [number, number][]
+  /** bandiere nei settori marshal: [t, settore, 2 gialla | 3 doppia | 0 libero].
+   *  La geometria non e' nel feed: il tratto disegnato e' approssimato. */
+  sector_flags: [number, number, number][]
   /** [t, codice]: 1 verde, 2 gialla, 4 SC, 5 rossa, 6 VSC, 7 VSC in rientro */
   track_status: [number, number][]
   drivers: ReplayDriver[]
