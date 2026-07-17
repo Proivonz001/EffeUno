@@ -18,18 +18,22 @@ function fmtLap(s: number): string {
   return `${m}:${(s - m * 60).toFixed(3).padStart(6, '0')}`
 }
 
-/** tempi dei giri "puliti": esclusi il via, i giri con sosta e quelli
- *  non interamente in bandiera verde */
-function cleanLaps(replay: ReplayData, d: ReplayDriver): number[] {
-  const out: number[] = []
+/** giri "puliti" come coppie [numero giro, tempo]: esclusi il via, i giri
+ *  con sosta e quelli non interamente in bandiera verde */
+function cleanLapPairs(replay: ReplayData, d: ReplayDriver): [number, number][] {
+  const out: [number, number][] = []
   for (const [n, start, end] of d.laps) {
     if (end === null || n === 1) continue
     if (d.pits.some(([a, b]) => a <= end && (b ?? a + 60) >= start)) continue
     if (trackStatusAt(replay.track_status, start) !== 1) continue
     if (replay.track_status.some(([t, c]) => t > start && t < end && c !== 1)) continue
-    out.push(end - start)
+    out.push([n, end - start])
   }
   return out
+}
+
+function cleanLaps(replay: ReplayData, d: ReplayDriver): number[] {
+  return cleanLapPairs(replay, d).map(p => p[1])
 }
 
 /** quantile su array gia' ordinato */
@@ -411,6 +415,112 @@ function StrategyChart({ replay }: { replay: ReplayData }) {
   )
 }
 
+/** Degrado per stint: tempi dei giri puliti in funzione dell'eta' della
+ *  gomma, con retta di regressione per stint — la pendenza e' il degrado. */
+function DegradationChart({ replay }: { replay: ReplayData }) {
+  const W = 1000
+  const H = 300
+  const padL = 56
+  const padB = 26
+  const padT = 10
+
+  const finishers = useMemo(() => finishOrder(replay), [replay])
+  const [num, setNum] = useState(finishers[0]?.num ?? '')
+  const d = replay.drivers.find(x => x.num === num)
+
+  const data = useMemo(() => {
+    if (!d) return []
+    const timeByLap = new Map(cleanLapPairs(replay, d))
+    const lifeByLap = new Map(d.tyres.map(t => [t[0], t[2]]))
+    return stints(d).map(s => {
+      const pts: { age: number; t: number }[] = []
+      for (let n = s.from; n <= s.to; n++) {
+        const t = timeByLap.get(n)
+        const age = lifeByLap.get(n)
+        if (t !== undefined && age !== null && age !== undefined) pts.push({ age, t })
+      }
+      // regressione lineare: pendenza = secondi persi per giro di eta'
+      let slope: number | null = null
+      let icept = 0
+      if (pts.length >= 3) {
+        const mx = pts.reduce((s2, p) => s2 + p.age, 0) / pts.length
+        const my = pts.reduce((s2, p) => s2 + p.t, 0) / pts.length
+        const den = pts.reduce((s2, p) => s2 + (p.age - mx) ** 2, 0)
+        if (den > 0) {
+          slope = pts.reduce((s2, p) => s2 + (p.age - mx) * (p.t - my), 0) / den
+          icept = my - slope * mx
+        }
+      }
+      return { ...s, pts, slope, icept }
+    }).filter(s => s.pts.length > 0)
+  }, [replay, d])
+
+  const allPts = data.flatMap(s => s.pts)
+  if (!d || allPts.length === 0) return null
+  const tMin = Math.min(...allPts.map(p => p.t)) - 0.3
+  const tMax = Math.max(...allPts.map(p => p.t)) + 0.3
+  const aMax = Math.max(...allPts.map(p => p.age)) + 1
+  const x = (age: number) => padL + (age / aMax) * (W - padL - 16)
+  const y = (t: number) => padT + ((tMax - t) / (tMax - tMin)) * (H - padT - padB)
+  const ticks: number[] = []
+  for (let v = Math.ceil(tMin); v <= tMax; v++) ticks.push(v)
+  const seen = new Map<string, number>()
+
+  return (
+    <div className="chart">
+      <div className="chart-label">Degrado per stint <span>giri puliti per età della gomma — la pendenza della retta è il degrado</span></div>
+      <div className="gap-pickers">
+        <span>pilota</span>
+        <select value={num} onChange={e => setNum(e.target.value)}>
+          {finishers.map(f => <option key={f.num} value={f.num}>{f.abbr}</option>)}
+        </select>
+        <span className="legend">
+          {data.map((s, i) => (
+            <span key={i} style={{ color: TYRE_COLORS[s.compound] ?? '#999' }}>
+              ■ G{s.from}–{s.to}{s.slope !== null &&
+                ` · ${s.slope >= 0 ? '+' : ''}${s.slope.toFixed(3)} s/giro`}
+            </span>
+          ))}
+        </span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="lap-chart">
+        {ticks.map(v => (
+          <g key={v}>
+            <line x1={padL} x2={W} y1={y(v)} y2={y(v)} className="grid" />
+            <text x={padL - 6} y={y(v)} textAnchor="end" fill="#666" fontSize="10"
+              dominantBaseline="middle">{fmtLap(v).slice(0, -4)}</text>
+          </g>
+        ))}
+        {Array.from({ length: Math.floor(aMax / 5) }, (_, i) => (i + 1) * 5).map(a => (
+          <text key={a} x={x(a)} y={H - 8} textAnchor="middle" fill="#666" fontSize="10">{a}</text>
+        ))}
+        {data.map((s, i) => {
+          const color = TYRE_COLORS[s.compound] ?? '#999'
+          const k = seen.get(s.compound) ?? 0
+          seen.set(s.compound, k + 1)
+          const dash = k > 0 ? '5 4' : undefined
+          const a0 = Math.min(...s.pts.map(p => p.age))
+          const a1 = Math.max(...s.pts.map(p => p.age))
+          return (
+            <g key={i}>
+              {s.pts.map((p, j) => (
+                <circle key={j} cx={x(p.age)} cy={y(p.t)} r="3" fill={color} fillOpacity="0.8" />
+              ))}
+              {s.slope !== null && (
+                <line x1={x(a0)} y1={y(s.icept + s.slope * a0)}
+                  x2={x(a1)} y2={y(s.icept + s.slope * a1)}
+                  stroke={color} strokeWidth="1.6" strokeDasharray={dash} />
+              )}
+            </g>
+          )
+        })}
+      </svg>
+      <p className="axis-note">asse orizzontale: età della gomma in giri (per i treni usati include le altre sessioni) —
+        pendenza negativa = l'alleggerimento del carburante vale più del degrado</p>
+    </div>
+  )
+}
+
 /** Tempi di pit stop: media delle traversate pit lane per squadra. */
 function PitTimesChart({ replay }: { replay: ReplayData }) {
   const W = 1000
@@ -543,6 +653,7 @@ export default function Charts({ replay }: Props) {
       <PaceChart replay={replay} />
       <AvgGapChart replay={replay} />
       <StrategyChart replay={replay} />
+      <DegradationChart replay={replay} />
       <PitTimesChart replay={replay} />
       <TopSpeedChart replay={replay} />
       <LapChart replay={replay} />
