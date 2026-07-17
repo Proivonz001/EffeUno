@@ -8,6 +8,12 @@
       "port": 5173
     },
     {
+      "name": "demo-preview",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "http.server", "4173", "--directory", "frontend/.pages-sim"],
+      "port": 4173
+    },
+    {
       "name": "fase0-anim",
       "runtimeExecutable": ".venv/Scripts/python.exe",
       "runtimeArgs": ["-m", "http.server", "8137", "--directory", "scripts/fase0_anim"],

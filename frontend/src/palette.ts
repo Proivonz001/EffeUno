@@ -1,6 +1,17 @@
 /** Palette propria, approssimata per squadra — niente colori/asset ufficiali
  *  (vincolo legale, vedi brief §3). Chiavi = TeamName come arriva dal feed. */
 const TEAM_COLORS: Record<string, string> = {
+  // squadre di fantasia della demo sintetica (scripts/gen_demo_data.py)
+  'Aurora': '#3671c6',
+  'Boreale': '#ff8000',
+  'Cinabro': '#e8002d',
+  'Duna': '#27f4d2',
+  'Elettra': '#229971',
+  'Fenice': '#ff87bc',
+  'Grifone': '#64c4ff',
+  'Idra': '#6692ff',
+  'Lanterna': '#52e252',
+  'Meridiana': '#b6babd',
   'Red Bull Racing': '#3671c6',
   'McLaren': '#ff8000',
   'Ferrari': '#e8002d',

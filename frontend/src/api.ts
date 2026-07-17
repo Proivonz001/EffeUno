@@ -106,32 +106,43 @@ export interface LapTelemetry {
   y: number[]
 }
 
+/** Build demo (GitHub Pages): dati SINTETICI impacchettati con la pagina,
+ *  nessun backend e nessun dato F1. Generati da scripts/gen_demo_data.py. */
+export const DEMO = import.meta.env.VITE_DEMO === '1'
+const demo = (name: string) => `${import.meta.env.BASE_URL}demo/${name}`
+
 async function json<T>(url: string): Promise<T> {
   const res = await fetch(url)
   if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`)
   return res.json()
 }
 
-export const getEvents = (year: number) => json<EventInfo[]>(`/api/events/${year}`)
+export const getEvents = (year: number) =>
+  json<EventInfo[]>(DEMO ? demo('events.json') : `/api/events/${year}`)
 
 const sessionPath = (year: number, event: string, session: string) =>
   `${year}/${encodeURIComponent(event)}/${session}`
 
 export const getSessionInfo = (year: number, event: string, session: string) =>
-  json<SessionInfo>(`/api/session/${sessionPath(year, event, session)}`)
+  json<SessionInfo>(DEMO ? demo('session.json')
+    : `/api/session/${sessionPath(year, event, session)}`)
 
 export const getReplay = (year: number, event: string, session: string) =>
-  json<ReplayData>(`/api/replay/${sessionPath(year, event, session)}`)
+  json<ReplayData>(DEMO ? demo('replay.json')
+    : `/api/replay/${sessionPath(year, event, session)}`)
 
 export const getLaps = (year: number, event: string, session: string) =>
-  json<LapInfo[]>(`/api/laps/${sessionPath(year, event, session)}`)
+  json<LapInfo[]>(DEMO ? demo('laps.json')
+    : `/api/laps/${sessionPath(year, event, session)}`)
 
 export const getFeed = (year: number, event: string, session: string) =>
-  json<FeedData>(`/api/feed/${sessionPath(year, event, session)}`)
+  json<FeedData>(DEMO ? demo('feed.json')
+    : `/api/feed/${sessionPath(year, event, session)}`)
 
 export const getLapTelemetry = (
   year: number, event: string, session: string, driver: string, lap: number,
-) => json<LapTelemetry>(`/api/telemetry/${sessionPath(year, event, session)}/${driver}/${lap}`)
+) => json<LapTelemetry>(DEMO ? demo(`tel_${driver}_${lap}.json`)
+  : `/api/telemetry/${sessionPath(year, event, session)}/${driver}/${lap}`)
 
 /** Polla lo stato finche' la sessione non e' pronta (il primo load puo' richiedere secondi). */
 export async function waitForSession(

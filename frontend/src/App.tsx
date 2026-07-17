@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import './App.css'
-import { getEvents, getFeed, getReplay, waitForSession } from './api'
+import { DEMO, getEvents, getFeed, getReplay, waitForSession } from './api'
 import type { EventInfo, FeedData, ReplayData } from './api'
 import Charts from './Charts'
 import Compare from './Compare'
@@ -155,6 +155,12 @@ export default function App() {
     <div className="app">
       <header>
         <h1>EffeUno</h1>
+        {DEMO && (
+          <span className="demo-badge"
+            title="Demo pubblica con gara generata al computer: piloti, squadre e telemetria di fantasia. Nessun dato F1.">
+            DEMO · dati sintetici
+          </span>
+        )}
         <select value={year} onChange={e => setYear(Number(e.target.value))}>
           {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
         </select>
