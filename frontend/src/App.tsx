@@ -6,6 +6,7 @@ import Charts from './Charts'
 import Compare from './Compare'
 import Feed from './Feed'
 import Leaderboard from './Leaderboard'
+import Live from './Live'
 import { STATUS_INFO, trackStatusAt } from './replay'
 import TrackMap from './TrackMap'
 
@@ -72,6 +73,9 @@ export default function App() {
   const [replay, setReplay] = useState<ReplayData | null>(null)
   const [feedData, setFeedData] = useState<FeedData | null>(null)
   const [tab, setTab] = useState<'replay' | 'charts' | 'compare'>('replay')
+  // vista LIVE: separata dal replay, solo in modalita' personale (backend)
+  const [view, setView] = useState<'archive' | 'live'>('archive')
+  const canLive = !SITE && !DEMO
 
   const [time, setTime] = useState(0)
   const [playing, setPlaying] = useState(true)
@@ -155,12 +159,21 @@ export default function App() {
     <div className="app">
       <header>
         <h1>EffeUno</h1>
+        {canLive && (
+          <button
+            className={`live-toggle ${view === 'live' ? 'active' : ''}`}
+            onClick={() => setView(v => v === 'live' ? 'archive' : 'live')}
+          >
+            ● LIVE
+          </button>
+        )}
         {DEMO && (
           <span className="demo-badge"
             title="Demo pubblica con gara generata al computer: piloti, squadre e telemetria di fantasia. Nessun dato F1.">
             DEMO · dati sintetici
           </span>
         )}
+        {view === 'archive' && <>
         <select value={year} onChange={e => setYear(Number(e.target.value))}>
           {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
         </select>
@@ -232,7 +245,10 @@ export default function App() {
             )}
           </>
         )}
+        </>}
       </header>
+      {view === 'live' && <Live />}
+      {view === 'archive' && <>
       {error && <p className="error">{error}</p>}
       {phase === 'idle' && !error && (
         <p className="hint">Scegli stagione e gara, poi premi «Carica gara». Il primo
@@ -258,6 +274,7 @@ export default function App() {
       {replay && loaded && tab === 'compare' && (
         <Compare year={loaded.year} event={loaded.event} session={loaded.session} />
       )}
+      </>}
       {SITE && (
         <footer className="site-footer">
           EffeUno è un progetto community non ufficiale e non è affiliato in alcun

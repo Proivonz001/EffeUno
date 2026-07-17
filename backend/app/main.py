@@ -21,7 +21,7 @@ app.add_middleware(
         # (raggiungibile solo dai dispositivi del proprietario via Tailscale)
         "https://proivonz001.github.io",
     ],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -65,6 +65,40 @@ def laps(year: int, event: str, session: str):
     if entry.status == "loading":
         raise HTTPException(409, detail="session still loading")
     return entry.session.laps()
+
+
+# --- sezione LIVE (stato effimero in RAM: replayer ora, SignalR poi) ---
+from .live import live_source  # noqa: E402
+
+
+@app.get("/api/live/status")
+def live_status():
+    return live_source.status()
+
+
+@app.get("/api/live/recordings")
+def live_recordings():
+    return live_source.recordings()
+
+
+@app.post("/api/live/replay/{name}")
+def live_replay(name: str, speed: float = 1.0):
+    try:
+        live_source.start_replay(name, speed)
+    except FileNotFoundError:
+        raise HTTPException(404, detail=f"registrazione {name} non trovata")
+    return live_source.status()
+
+
+@app.post("/api/live/stop")
+def live_stop():
+    live_source.stop()
+    return live_source.status()
+
+
+@app.get("/api/live/state")
+def live_state(pos_after: str | None = None):
+    return live_source.snapshot(pos_after)
 
 
 @app.get("/api/feed/{year}/{event}/{session}")
