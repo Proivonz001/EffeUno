@@ -11,9 +11,13 @@ Poi apri l'URL stampato, fai login/Connect, e controlla che dica
 """
 
 import sys
+from pathlib import Path
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+
+BACKUP = Path(__file__).resolve().parents[1] / ".secrets" / "f1tv.token"
 
 
 def main() -> int:
@@ -24,9 +28,13 @@ def main() -> int:
         print("login fallito: nessun token ricevuto")
         return 1
     f1auth.AUTH_DATA_FILE.write_text(token)
+    # copia di riserva: qualcosa (non identificato) azzera il file della
+    # libreria; record_live lo ripristina da qui prima di partire
+    BACKUP.parent.mkdir(exist_ok=True)
+    BACKUP.write_text(token)
     saved = f1auth.AUTH_DATA_FILE.read_text()
     if saved == token:
-        print(f"token salvato ({len(token)} byte) in {f1auth.AUTH_DATA_FILE}")
+        print(f"token salvato ({len(token)} byte) + backup in {BACKUP}")
         return 0
     print("scrittura non riuscita")
     return 1

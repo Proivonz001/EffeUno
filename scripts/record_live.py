@@ -38,6 +38,18 @@ def main() -> int:
                         help="prova senza token F1TV")
     args = parser.parse_args()
 
+    # se il token della libreria e' stato azzerato (bug noto), ripristina
+    # dalla copia di riserva salvata da f1_login.py
+    try:
+        from fastf1.internals import f1auth
+        backup = ROOT / ".secrets" / "f1tv.token"
+        if backup.exists() and backup.stat().st_size > 0 \
+                and f1auth.AUTH_DATA_FILE.stat().st_size == 0:
+            f1auth.AUTH_DATA_FILE.write_text(backup.read_text())
+            print("token ripristinato dalla copia di riserva")
+    except Exception:
+        pass
+
     from fastf1.livetiming.client import SignalRClient
 
     OUT_DIR.mkdir(exist_ok=True)
