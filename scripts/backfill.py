@@ -57,6 +57,7 @@ def main() -> int:
     import pandas as pd
 
     import fastf1
+    CACHE_DIR.mkdir(exist_ok=True)
     fastf1.Cache.enable_cache(str(CACHE_DIR))
 
     to_r2 = not args.no_r2
