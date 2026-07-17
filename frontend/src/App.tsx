@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import './App.css'
-import { DEMO, getEvents, getFeed, getReplay, waitForSession } from './api'
+import { DEMO, SITE, getEvents, getFeed, getReplay, waitForSession } from './api'
 import type { EventInfo, FeedData, ReplayData } from './api'
 import Charts from './Charts'
 import Compare from './Compare'
@@ -257,6 +257,15 @@ export default function App() {
       )}
       {replay && loaded && tab === 'compare' && (
         <Compare year={loaded.year} event={loaded.event} session={loaded.session} />
+      )}
+      {SITE && (
+        <footer className="site-footer">
+          EffeUno è un progetto community non ufficiale e non è affiliato in alcun
+          modo a Formula 1 — F1, FORMULA 1 e marchi correlati appartengono a
+          Formula One Licensing B.V. · progetto gratuito e senza scopo di lucro ·
+          i contenuti verranno rimossi su richiesta dei titolari dei diritti ·{' '}
+          <a href="https://github.com/Proivonz001/EffeUno">codice sorgente</a>
+        </footer>
       )}
     </div>
   )

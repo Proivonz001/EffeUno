@@ -3,8 +3,8 @@ import react from '@vitejs/plugin-react'
 
 // https://vite.dev/config/
 export default defineConfig({
-  // la build demo va su GitHub Pages sotto /EffeUno/
-  base: process.env.VITE_DEMO === '1' ? '/EffeUno/' : '/',
+  // le build pubblicate (demo o sito con catalogo) vanno su Pages sotto /EffeUno/
+  base: process.env.VITE_DEMO === '1' || process.env.VITE_DATA_BASE ? '/EffeUno/' : '/',
   plugins: [react()],
   server: {
     proxy: {

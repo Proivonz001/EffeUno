@@ -134,6 +134,10 @@ def main() -> int:
     # catalogo: aggiungi/aggiorna la voce e riscrivi
     idx_path = base / "index.json"
     catalog = json.loads(idx_path.read_text()) if idx_path.exists() else {"sessions": []}
+    try:
+        event_date = str(sess._s.event["EventDate"].date())  # noqa: SLF001
+    except Exception:
+        event_date = None
     entry = {
         "year": args.year,
         "event": info.get("event", args.event),
@@ -141,6 +145,7 @@ def main() -> int:
         "session_name": info.get("session", args.session),
         "path": rel,
         "drivers": len(info.get("drivers", [])),
+        "date": event_date,
     }
     catalog["sessions"] = [s for s in catalog["sessions"] if s["path"] != rel]
     catalog["sessions"].append(entry)

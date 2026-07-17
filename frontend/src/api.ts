@@ -124,38 +124,104 @@ export const API_BASE = localStorage.getItem('effeuno-api') ?? ''
 export const DEMO = import.meta.env.VITE_DEMO === '1' && !API_BASE
 const demo = (name: string) => `${import.meta.env.BASE_URL}demo/${name}`
 
+/** Sito pubblico: catalogo e dati statici pre-pubblicati (R2), nessun
+ *  backend. L'override ?api=... vince (uso privato del proprietario). */
+const DATA_BASE: string = import.meta.env.VITE_DATA_BASE ?? ''
+export const SITE = !!DATA_BASE && !API_BASE
+
+export interface CatalogSession {
+  year: number
+  event: string
+  session: string
+  session_name: string
+  path: string
+  drivers: number
+  date?: string
+}
+
+let _catalog: Promise<{ sessions: CatalogSession[] }> | null = null
+export function getCatalog() {
+  _catalog = _catalog ?? json<{ sessions: CatalogSession[] }>(`${DATA_BASE}/index.json`)
+  return _catalog
+}
+
+const slugify = (name: string) => name.toLowerCase().replace(/ /g, '-')
+const dataPath = (year: number, event: string, session: string) =>
+  `${DATA_BASE}/${year}/${slugify(event)}/${session}`
+
 async function json<T>(url: string): Promise<T> {
   const res = await fetch(url)
   if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`)
   return res.json()
 }
 
-export const getEvents = (year: number) =>
-  json<EventInfo[]>(DEMO ? demo('events.json') : `${API_BASE}/api/events/${year}`)
+export const getEvents = async (year: number): Promise<EventInfo[]> => {
+  if (DEMO) return json<EventInfo[]>(demo('events.json'))
+  if (SITE) {
+    // dal catalogo: un EventInfo per evento pubblicato in quell'anno
+    const cat = await getCatalog()
+    const byEvent = new Map<string, CatalogSession[]>()
+    for (const s of cat.sessions) {
+      if (s.year === year) {
+        byEvent.set(s.event, [...(byEvent.get(s.event) ?? []), s])
+      }
+    }
+    return [...byEvent.entries()].map(([name, sessions], i) => ({
+      round: i + 1,
+      name,
+      country: sessions.map(s => s.session).sort().join('/'),
+      date: sessions[0].date ?? '2000-01-01',
+      format: sessions.some(s => s.session === 'S' || s.session === 'SQ')
+        ? 'sprint_qualifying' : 'conventional',
+    }))
+  }
+  return json<EventInfo[]>(`${API_BASE}/api/events/${year}`)
+}
 
 const sessionPath = (year: number, event: string, session: string) =>
   `${year}/${encodeURIComponent(event)}/${session}`
 
 export const getSessionInfo = (year: number, event: string, session: string) =>
-  json<SessionInfo>(DEMO ? demo('session.json')
-    : `${API_BASE}/api/session/${sessionPath(year, event, session)}`)
+  SITE ? Promise.resolve({ status: 'ready' } as SessionInfo)
+    : json<SessionInfo>(DEMO ? demo('session.json')
+      : `${API_BASE}/api/session/${sessionPath(year, event, session)}`)
 
 export const getReplay = (year: number, event: string, session: string) =>
   json<ReplayData>(DEMO ? demo('replay.json')
+    : SITE ? `${dataPath(year, event, session)}/replay.json`
     : `${API_BASE}/api/replay/${sessionPath(year, event, session)}`)
 
 export const getLaps = (year: number, event: string, session: string) =>
   json<LapInfo[]>(DEMO ? demo('laps.json')
+    : SITE ? `${dataPath(year, event, session)}/laps.json`
     : `${API_BASE}/api/laps/${sessionPath(year, event, session)}`)
 
 export const getFeed = (year: number, event: string, session: string) =>
   json<FeedData>(DEMO ? demo('feed.json')
+    : SITE ? `${dataPath(year, event, session)}/feed.json`
     : `${API_BASE}/api/feed/${sessionPath(year, event, session)}`)
 
-export const getLapTelemetry = (
+/** cache dei pacchetti-telemetria per pilota (modalita' sito) */
+const _bundles = new Map<string, Promise<Record<string, LapTelemetry>>>()
+
+export const getLapTelemetry = async (
   year: number, event: string, session: string, driver: string, lap: number,
-) => json<LapTelemetry>(DEMO ? demo(`tel_${driver}_${lap}.json`)
-  : `${API_BASE}/api/telemetry/${sessionPath(year, event, session)}/${driver}/${lap}`)
+): Promise<LapTelemetry> => {
+  if (DEMO) return json<LapTelemetry>(demo(`tel_${driver}_${lap}.json`))
+  if (SITE) {
+    const key = `${dataPath(year, event, session)}/drivers/${driver}.json`
+    let bundle = _bundles.get(key)
+    if (!bundle) {
+      bundle = json<Record<string, LapTelemetry>>(key)
+      _bundles.set(key, bundle)
+    }
+    const tel = (await bundle)[String(lap)]
+    if (!tel) throw new Error(`telemetria non disponibile per ${driver} giro ${lap}`)
+    return tel
+  }
+  return json<LapTelemetry>(
+    `${API_BASE}/api/telemetry/${sessionPath(year, event, session)}/${driver}/${lap}`)
+}
 
 /** Polla lo stato finche' la sessione non e' pronta (il primo load puo' richiedere secondi). */
 export async function waitForSession(

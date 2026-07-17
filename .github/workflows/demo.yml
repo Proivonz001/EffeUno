@@ -35,7 +35,8 @@ jobs:
       - run: npm run build
         working-directory: frontend
         env:
-          VITE_DEMO: "1"
+          # sito con catalogo: i dati stanno su R2 (pubblici), la pagina qui
+          VITE_DATA_BASE: "https://pub-7a1cd7c01e3a406abd2c48ea580ffa38.r2.dev"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: frontend/dist
