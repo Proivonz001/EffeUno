@@ -163,6 +163,16 @@ class LiveSource:
             last_stint = stint_list[-1] if stint_list else {}
             last = t.get("LastLapTime") or {}
             best = t.get("BestLapTime") or {}
+            # best di sessione (TimingStats): Position == 1 = record assoluto
+            stats = s.timing_stats.get(num, {})
+            bs = stats.get("BestSectors") or {}
+            best_sectors = []
+            for i in ("0", "1", "2"):
+                e = bs.get(i) if isinstance(bs, dict) else None
+                e = e or {}
+                best_sectors.append({"value": e.get("Value") or "",
+                                     "ob": e.get("Position") == 1})
+            pb_lap = stats.get("PersonalBestLapTime") or {}
             try:
                 pos = int(t.get("Position", 0))
             except (TypeError, ValueError):
@@ -176,7 +186,9 @@ class LiveSource:
                 "last": {"value": last.get("Value") or "",
                          "pb": bool(last.get("PersonalFastest")),
                          "ob": bool(last.get("OverallFastest"))},
-                "best": best.get("Value") or "",
+                "best": pb_lap.get("Value") or best.get("Value") or "",
+                "best_ob": pb_lap.get("Position") == 1,
+                "best_sectors": best_sectors,
                 "gap": t.get("TimeDiffToFastest")
                     or (t.get("GapToLeader") if isinstance(t.get("GapToLeader"), str) else "")
                     or "",

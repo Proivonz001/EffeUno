@@ -65,6 +65,7 @@ class LiveState:
         self.drivers: dict[str, dict[str, Any]] = {}       # num -> DriverList
         self.timing: dict[str, dict[str, Any]] = {}        # num -> TimingData.Lines merged
         self.timing_app: dict[str, dict[str, Any]] = {}    # num -> TimingAppData (stint/gomme)
+        self.timing_stats: dict[str, dict[str, Any]] = {}  # num -> TimingStats (best di sessione)
         self.lap_count: dict[str, Any] = {}
         self.track_status: list[tuple[str, int]] = []      # (ts, codice)
         self.weather: dict[str, Any] = {}
@@ -107,6 +108,12 @@ class LiveState:
     def _on_TimingAppData(self, p: Any, ts: str) -> None:
         for num, line in (p.get("Lines") or {}).items():
             deep_merge(self.timing_app.setdefault(num, {}), line)
+
+    def _on_TimingStats(self, p: Any, ts: str) -> None:
+        # best di sessione per pilota: giro e settori, con Position nel
+        # ranking (Position == 1 -> detentore del best assoluto: viola)
+        for num, line in (p.get("Lines") or {}).items():
+            deep_merge(self.timing_stats.setdefault(num, {}), line)
 
     def _on_LapCount(self, p: Any, ts: str) -> None:
         deep_merge(self.lap_count, p)

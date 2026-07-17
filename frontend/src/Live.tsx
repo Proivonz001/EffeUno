@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { API_BASE } from './api'
+import { TyreIcon } from './Leaderboard'
 import { teamColor } from './palette'
-import { contrastColor, TYRE_COLORS } from './replay'
+import { contrastColor } from './replay'
 
 /** colori dei microsettori (codici del feed, come la grafica ufficiale) */
 const SEG_COLORS: Record<number, string> = {
@@ -28,6 +29,8 @@ interface TowerRow {
   color: string
   last: { value: string; pb: boolean; ob: boolean }
   best: string
+  best_ob: boolean
+  best_sectors: { value: string; ob: boolean }[]
   gap: string
   interval: string
   in_pit: boolean
@@ -231,36 +234,31 @@ export default function Live() {
           <table>
             <thead>
               <tr>
-                <th>P</th><th></th><th className="t-num">Last</th>
-                <th className="t-num">Best</th><th className="t-num">Gap</th>
-                <th>S1</th><th>S2</th><th>S3</th>
-                <th>Microsettori</th><th>G</th><th></th>
+                <th>P</th><th></th><th></th><th className="t-num">Tempo</th>
+                <th className="t-num">Gap</th>
+                <th className="t-num">S1</th><th className="t-num">S2</th>
+                <th className="t-num">S3</th><th>Gomma</th>
               </tr>
             </thead>
             <tbody>
               {tower.map((r, i) => {
                 const bg = rowColor(r, i)
-                return (
-                  <tr key={r.num} className={r.retired ? 'out' : ''}>
-                    <td className="pos">{r.pos || ''}</td>
-                    <td>
+                return [
+                  <tr key={`${r.num}-last`} className={`row-last ${r.retired ? 'out' : ''}`}>
+                    <td className="pos" rowSpan={2}>{r.pos || ''}</td>
+                    <td rowSpan={2}>
                       <span className="tag" style={{ background: bg, color: contrastColor(bg) }}>
                         {r.abbr}
                       </span>
                     </td>
+                    <td className="t-label">LAST</td>
                     <td className={`t-num ${timeCls(r.last)}`}>
                       {r.in_pit ? <span className="box">BOX</span>
                         : r.pit_out ? <span className="pit-out">OUT LAP</span>
                         : r.last.value}
                     </td>
-                    <td className="t-num t-best">{r.best}</td>
-                    <td className="t-num">{r.gap || r.interval}</td>
-                    {r.sectors.map((s, k) => (
-                      <td key={k} className={`t-num t-sec ${s.ob ? 'lt-ob' : s.pb ? 'lt-pb' : ''}`}>
-                        {s.value}
-                      </td>
-                    ))}
-                    <td className="minisectors">
+                    <td className="t-num t-int">{r.interval}</td>
+                    <td className="minisectors" colSpan={3}>
                       {r.sectors.map((s, k) => (
                         <span key={k} className="ms-group">
                           {s.segments.map((code, j) => (
@@ -269,17 +267,29 @@ export default function Live() {
                         </span>
                       ))}
                     </td>
-                    <td className="t-num t-laps">{r.laps ?? ''}</td>
-                    <td className="tyre-cell">
+                    <td className="tyre-cell" rowSpan={2}
+                      title="mescola · giri percorsi con questo treno (usura); * = treno usato">
                       {r.tyre.compound && (
-                        <span style={{ color: TYRE_COLORS[r.tyre.compound[0]] ?? '#ccc' }}>
-                          {r.tyre.compound[0]}
-                          <em>{r.tyre.age ?? ''}{r.tyre.new ? '' : '*'}</em>
-                        </span>
+                        <>
+                          <TyreIcon c={r.tyre.compound[0]} />
+                          <span className="age">
+                            {r.tyre.age ?? ''}{r.tyre.new ? '' : '*'}
+                          </span>
+                        </>
                       )}
                     </td>
-                  </tr>
-                )
+                  </tr>,
+                  <tr key={`${r.num}-best`} className={`row-best ${r.retired ? 'out' : ''}`}>
+                    <td className="t-label">BEST</td>
+                    <td className={`t-num ${r.best_ob ? 'lt-ob' : ''}`}>{r.best}</td>
+                    <td className="t-num t-int">{r.gap}</td>
+                    {r.best_sectors.map((s, k) => (
+                      <td key={k} className={`t-num t-sec ${s.ob ? 'lt-ob' : ''}`}>
+                        {s.value}
+                      </td>
+                    ))}
+                  </tr>,
+                ]
               })}
             </tbody>
           </table>
