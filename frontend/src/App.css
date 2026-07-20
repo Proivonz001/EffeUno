@@ -498,16 +498,23 @@ header input[type='range'] {
 .tower .pit-out { color: #888; font-size: 10px; }
 .tower tr.out { opacity: 0.4; }
 
-.minisectors { line-height: 0; }
-.ms-group { margin-right: 6px; white-space: nowrap; }
+/* cella settore: pallini microsettore sopra, tempo dell'ultimo giro sotto,
+   tutto allineato a destra con l'intestazione S1/S2/S3 */
+.sec-stack { vertical-align: bottom; }
+.sec-stack .ms-group { display: block; line-height: 0; margin-bottom: 2px; }
+.ms-group { white-space: nowrap; text-align: right; }
 .ms-group i {
   display: inline-block;
   width: 4px;
-  height: 9px;
-  margin-right: 1.5px;
+  height: 8px;
+  margin-left: 1.5px;
   border-radius: 1px;
 }
 
+
+/* torre delle qualifiche nel replay: niente pallini (i microsettori non
+   esistono nei dati storici), quindi piu' stretta della torre live */
+.quali-tower { width: 560px; }
 
 .live-map {
   flex: 1;

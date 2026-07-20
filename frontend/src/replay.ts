@@ -114,9 +114,16 @@ export function retirementTimes(replay: ReplayData): number[] {
   })
 }
 
-/** Mescola ed eta' (in giri) del treno montato al giro dato. */
+/** Mescola ed eta' (in giri) del treno montato al giro dato; se il giro
+ *  non ha una voce (es. pilota in garage in qualifica), l'ultimo treno noto. */
 export function tyreAt(d: ReplayDriver, lap: number): { c: string; age: number | null } | null {
-  const entry = d.tyres.find(e => e[0] === lap)
+  let entry = d.tyres.find(e => e[0] === lap)
+  if (!entry) {
+    for (const e of d.tyres) {
+      if (e[0] <= lap) entry = e
+      else break
+    }
+  }
   return entry ? { c: entry[1], age: entry[2] } : null
 }
 
@@ -197,6 +204,41 @@ export function sectorsAt(replay: ReplayData, t: number): Map<string, DriverSect
 
   const out = new Map<string, DriverSectors>()
   for (const [num, d] of display) out.set(num, { sectors: d.sectors })
+  return out
+}
+
+export interface DriverBestSectors {
+  /** migliori settori personali finora; ob = detentore del record assoluto */
+  sectors: ({ time: number; ob: boolean } | null)[]
+}
+
+/** Best settori di sessione al tempo t (per la torre delle qualifiche):
+ *  minimi personali + detentore del record assoluto per settore. */
+export function bestSectorsAt(replay: ReplayData, t: number): Map<string, DriverBestSectors> {
+  let events = sectorEventsCache.get(replay)
+  if (!events) {
+    events = sectorEvents(replay)
+    sectorEventsCache.set(replay, events)
+  }
+  const best = new Map<string, (number | null)[]>()
+  const overall: (number | null)[] = [null, null, null]
+  const holder: (string | null)[] = [null, null, null]
+  for (const ev of events) {
+    if (ev.end > t) break
+    const p = best.get(ev.num) ?? [null, null, null]
+    if (p[ev.sector] === null || ev.time < p[ev.sector]!) p[ev.sector] = ev.time
+    best.set(ev.num, p)
+    if (overall[ev.sector] === null || ev.time < overall[ev.sector]!) {
+      overall[ev.sector] = ev.time
+      holder[ev.sector] = ev.num
+    }
+  }
+  const out = new Map<string, DriverBestSectors>()
+  for (const [num, p] of best) {
+    out.set(num, {
+      sectors: p.map((v, i) => v === null ? null : { time: v, ob: holder[i] === num }),
+    })
+  }
   return out
 }
 

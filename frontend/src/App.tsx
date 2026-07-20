@@ -7,6 +7,7 @@ import Compare from './Compare'
 import Feed from './Feed'
 import Leaderboard from './Leaderboard'
 import Live from './Live'
+import QualiTower from './QualiTower'
 import { STATUS_INFO, trackStatusAt } from './replay'
 import TrackMap from './TrackMap'
 
@@ -256,11 +257,14 @@ export default function App() {
       )}
       {replay && loaded && tab === 'replay' && (
         <div className="main">
-          <Leaderboard
-            replay={replay} time={time}
-            mode={loaded.session === 'Q' ? 'quali' : 'race'}
-            focus={focus} onFocus={setFocus}
-          />
+          {loaded.session === 'Q' ? (
+            <QualiTower replay={replay} time={time} />
+          ) : (
+            <Leaderboard
+              replay={replay} time={time} mode="race"
+              focus={focus} onFocus={setFocus}
+            />
+          )}
           <TrackMap
             replay={replay} time={time} focus={focus} onFocus={setFocus}
             wind={wx ? [wx[4], wx[5]] : null}

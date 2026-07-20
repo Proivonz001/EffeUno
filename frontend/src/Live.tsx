@@ -258,15 +258,18 @@ export default function Live() {
                         : r.last.value}
                     </td>
                     <td className="t-num t-int">{r.interval}</td>
-                    <td className="minisectors" colSpan={3}>
-                      {r.sectors.map((s, k) => (
-                        <span key={k} className="ms-group">
+                    {r.sectors.map((s, k) => (
+                      <td key={k} className="t-num t-sec sec-stack">
+                        <span className="ms-group">
                           {s.segments.map((code, j) => (
                             <i key={j} style={{ background: SEG_COLORS[code] ?? '#555' }} />
                           ))}
                         </span>
-                      ))}
-                    </td>
+                        <span className={s.ob ? 'lt-ob' : s.pb ? 'lt-pb' : ''}>
+                          {s.value}
+                        </span>
+                      </td>
+                    ))}
                     <td className="tyre-cell" rowSpan={2}
                       title="mescola · giri percorsi con questo treno (usura); * = treno usato">
                       {r.tyre.compound && (
