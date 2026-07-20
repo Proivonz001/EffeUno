@@ -206,14 +206,25 @@ export const getEvents = async (year: number): Promise<EventInfo[]> => {
         byEvent.set(s.event, [...(byEvent.get(s.event) ?? []), s])
       }
     }
-    return [...byEvent.entries()].map(([name, sessions], i) => ({
-      round: i + 1,
-      name,
-      country: sessions.map(s => s.session).sort().join('/'),
-      date: sessions[0].date ?? '2000-01-01',
-      format: sessions.some(s => s.session === 'S' || s.session === 'SQ')
-        ? 'sprint_qualifying' : 'conventional',
-    }))
+    // il catalogo e' ordinato per slug (alfabetico): l'ordine di
+    // campionato si ricostruisce dalla data dell'evento. Le voci senza
+    // data (pubblicate prima del campo) finiscono in testa finche' il
+    // rebuild non le ritimbra.
+    return [...byEvent.entries()]
+      .map(([name, sessions]) => ({
+        name,
+        sessions,
+        date: sessions.map(s => s.date).find(d => d) ?? '2000-01-01',
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((e, i) => ({
+        round: i + 1,
+        name: e.name,
+        country: e.sessions.map(s => s.session).sort().join('/'),
+        date: e.date,
+        format: e.sessions.some(s => s.session === 'S' || s.session === 'SQ')
+          ? 'sprint_qualifying' : 'conventional',
+      }))
   }
   return json<EventInfo[]>(`${API_BASE}/api/events/${year}`)
 }
