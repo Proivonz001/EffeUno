@@ -33,6 +33,13 @@ if hasattr(sys.stdout, "reconfigure"):
 
 BUCKET = "effeuno-data"
 
+# versione del formato dati pubblicato, scritta nella voce di catalogo.
+# 2 = dataset esteso del 2026-07-20 (risultati ufficiali, speed trap,
+# giri cancellati con motivo, TrackStatus per giro, curve/marshal,
+# RPM+DRS nei bundle, quali_segments). backfill --rebuild ripubblica
+# solo le voci con versione precedente: il rebuild e' riprendibile.
+DATA_VERSION = 2
+
 
 def slug(name: str) -> str:
     return name.lower().replace(" ", "-")
@@ -151,6 +158,7 @@ def publish(year: int, event: str, session: str, out_base: Path,
         "path": rel,
         "drivers": len(info.get("drivers", [])),
         "date": event_date,
+        "v": DATA_VERSION,
     }
     catalog["sessions"] = [s for s in catalog["sessions"] if s["path"] != rel]
     catalog["sessions"].append(entry)

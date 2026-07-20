@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from publish_session import fetch_remote_catalog, publish  # noqa: E402
+from publish_session import DATA_VERSION, fetch_remote_catalog, publish  # noqa: E402
 
 CACHE_DIR = ROOT / "fastf1_cache"
 
@@ -52,6 +52,10 @@ def main() -> int:
     ap.add_argument("--no-r2", action="store_true", help="solo file locali")
     ap.add_argument("--pause", type=float, default=20.0,
                     help="secondi di pausa tra sessioni (gentilezza verso il feed)")
+    ap.add_argument("--rebuild", action="store_true",
+                    help="ripubblica le sessioni con formato dati vecchio "
+                         f"(versione < {DATA_VERSION}); riprendibile: le voci "
+                         "gia' rigenerate vengono saltate")
     args = ap.parse_args()
 
     import pandas as pd
@@ -74,7 +78,10 @@ def main() -> int:
                 continue  # weekend futuro
             for code in sessions_for(str(ev["EventFormat"])):
                 catalog = fetch_remote_catalog() or {"sessions": []}
-                known = {s["path"] for s in catalog["sessions"]}
+                # con --rebuild "gia' fatta" = gia' al formato corrente
+                known = {s["path"] for s in catalog["sessions"]
+                         if not args.rebuild
+                         or s.get("v", 1) >= DATA_VERSION}
                 rel = f"{year}/{ev['EventName'].lower().replace(' ', '-')}/{code}"
                 if rel in known:
                     skipped += 1
