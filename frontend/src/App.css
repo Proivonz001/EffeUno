@@ -530,8 +530,15 @@ header input[type='range'] {
   background: #181818;
   z-index: 2;
 }
-/* con la barra manche sopra, le intestazioni si fermano sotto di lei */
-.quali-tower .quali-clock + table th { top: 28px; }
+/* con la barra manche/giri sopra, le intestazioni si fermano sotto di lei */
+.leaderboard .quali-clock + table th { top: 28px; }
+.lap-counter {
+  color: #eee;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  font-variant-numeric: tabular-nums;
+}
 .quali-clock.inline {
   padding: 0;
   border-bottom: none;
@@ -566,17 +573,6 @@ header input[type='range'] {
   font-weight: 700;
   letter-spacing: 0.4px;
 }
-
-/* delta griglia -> posizione nella classifica gara */
-.grid-delta {
-  display: block;
-  font-size: 8.5px;
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: -0.3px;
-}
-.grid-delta.up { color: #2ecc71; }
-.grid-delta.down { color: #e74c3c; }
 
 /* motivo del ritiro accanto a OUT (dai risultati ufficiali) */
 .out-reason {

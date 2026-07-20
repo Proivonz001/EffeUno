@@ -65,8 +65,31 @@ export default function Leaderboard({ replay, time, mode, focus, onFocus }: Prop
   const { ref: boardRef, fx } = useOvertakeFx(
     rows.map(r => r.driver.num), 1, replay)
 
+  // contatore giri: giro del leader / totale, piu' tempo alla fine
+  // (dei dati del replay = fine gara reale)
+  const totalLaps = useMemo(() => Math.max(
+    ...replay.drivers.map(d => d.laps.length ? d.laps[d.laps.length - 1][0] : 0), 1,
+  ), [replay])
+  const leadLap = rows.find(r => !r.out)?.lap ?? 1
+  const remaining = Math.max(0, replay.duration_s - qt)
+  const fmtRemaining = (s: number) => {
+    const h = Math.floor(s / 3600)
+    const m = Math.floor((s % 3600) / 60)
+    const sec = Math.floor(s % 60)
+    return (h ? `${h}:${String(m).padStart(2, '0')}` : String(m)) +
+      `:${String(sec).padStart(2, '0')}`
+  }
+
   return (
     <div className="leaderboard" ref={boardRef}>
+      {mode === 'race' && (
+        <div className="quali-clock">
+          <span className="lap-counter">GIRO {leadLap}/{totalLaps}</span>
+          <span className="q-remaining" title="tempo alla bandiera a scacchi">
+            {fmtRemaining(remaining)}
+          </span>
+        </div>
+      )}
       <table>
         <thead>
           <tr>
@@ -94,8 +117,15 @@ export default function Leaderboard({ replay, time, mode, focus, onFocus }: Prop
             // piazzati a giri pieni ("Finished"/"+1 Lap") non lo mostrano
             const outReason = r.out && res?.status
               && !/Finished|Lap/.test(res.status) ? res.status : null
+            // griglia solo nel tooltip della posizione (scelta utente:
+            // niente simboli in riga, l'analisi sta nel grafico dedicato)
             const delta = mode === 'race' && !r.out && res?.grid
               ? res.grid - r.pos : null
+            const gridTitle = res?.grid
+              ? `partito P${res.grid}` + (delta
+                ? ` · ${delta > 0 ? '+' : '−'}${Math.abs(delta)} posizioni`
+                : '')
+              : undefined
             return (
               <tr
                 key={r.driver.num}
@@ -103,14 +133,7 @@ export default function Leaderboard({ replay, time, mode, focus, onFocus }: Prop
                 className={(r.out ? 'out' : '') + (focus === r.driver.num ? ' focus' : '') + ' ' + f.cls}
                 onClick={() => onFocus(focus === r.driver.num ? null : r.driver.num)}
               >
-                <td className="pos" title={res?.grid ? `partito P${res.grid}` : undefined}>
-                  {r.pos}
-                  {delta !== null && delta !== 0 && (
-                    <span className={`grid-delta ${delta > 0 ? 'up' : 'down'}`}>
-                      {delta > 0 ? '▲' : '▼'}{Math.abs(delta)}
-                    </span>
-                  )}
-                </td>
+                <td className="pos" title={gridTitle}>{r.pos}</td>
                 <td>
                   <span className="tag" style={{ background: bg, color: contrastColor(bg) }}>
                     {r.driver.abbr}
