@@ -516,11 +516,135 @@ header input[type='range'] {
    esistono nei dati storici), quindi piu' stretta della torre live */
 .quali-tower { width: 560px; }
 
+/* --- manche di qualifica + countdown ----------------------------------- */
+.quali-clock {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border-bottom: 1px solid #2a2a2a;
+  position: sticky;
+  top: 0;
+  background: #181818;
+  z-index: 2;
+}
+/* con la barra manche sopra, le intestazioni si fermano sotto di lei */
+.quali-tower .quali-clock + table th { top: 28px; }
+.quali-clock.inline {
+  padding: 0;
+  border-bottom: none;
+  position: static;
+  display: inline-flex;
+}
+.q-part {
+  color: #555;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: #222;
+}
+.q-part.done { color: #777; text-decoration: line-through; }
+.q-part.active { background: #e10600; color: #fff; }
+.q-remaining {
+  margin-left: 6px;
+  color: #eee;
+  font-weight: 700;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.q-remaining.paused { color: #777; }
+
+/* eliminati in Q1/Q2: righe attenuate e tag al posto del gap */
+.tower tr.q-elim { opacity: 0.45; }
+.elim-tag {
+  color: #c96;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+}
+
+/* delta griglia -> posizione nella classifica gara */
+.grid-delta {
+  display: block;
+  font-size: 8.5px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.3px;
+}
+.grid-delta.up { color: #2ecc71; }
+.grid-delta.down { color: #e74c3c; }
+
+/* motivo del ritiro accanto a OUT (dai risultati ufficiali) */
+.out-reason {
+  color: #a55;
+  font-size: 9.5px;
+  font-style: italic;
+}
+
 .live-map {
   flex: 1;
   min-width: 0;
   min-height: 0;
   width: 100%;
+}
+
+/* --- animazione sorpasso ------------------------------------------------
+   Chi sale: zoom+ e alone verde sfumato ai bordi; chi scende: zoom- e alone
+   rosso. --ot-slide (impostato dal componente) e' la distanza dalla vecchia
+   posizione: la riga parte da li' e scivola in quella nuova. L'alone e' un
+   overlay ::after per cella: i gradienti verticali si allineano in una
+   fascia continua che sfuma verso il bordo della riga. */
+tr.ot-up   { --ot-strong: rgba(46, 204, 113, 0.45); --ot-weak: rgba(46, 204, 113, 0.10); }
+tr.ot-down { --ot-strong: rgba(231, 76, 60, 0.45);  --ot-weak: rgba(231, 76, 60, 0.10); }
+
+tr.ot-up td, tr.ot-down td {
+  position: relative;
+  z-index: 1; /* la riga in movimento passa sopra le altre */
+  animation: ot-move-up 1.25s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+tr.ot-down td { animation-name: ot-move-down; z-index: 0; }
+
+tr.ot-up td::after, tr.ot-down td::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg,
+    var(--ot-strong), var(--ot-weak) 35%, var(--ot-weak) 65%, var(--ot-strong));
+  animation: ot-glow 1.25s ease-out both;
+}
+/* torri a doppia riga: l'alone forte sta sui bordi esterni della coppia;
+   le celle rowspan (P, tag, gomma) coprono l'intera coppia e tengono
+   il gradiente completo */
+tr.row-last.ot-up td:not([rowspan])::after,
+tr.row-last.ot-down td:not([rowspan])::after {
+  background: linear-gradient(180deg, var(--ot-strong), var(--ot-weak) 60%);
+}
+tr.row-best.ot-up td::after, tr.row-best.ot-down td::after {
+  background: linear-gradient(0deg, var(--ot-strong), var(--ot-weak) 60%);
+}
+
+@keyframes ot-move-up {
+  0%   { transform: translateY(var(--ot-slide, 0px)); }
+  30%  { transform: translateY(calc(var(--ot-slide, 0px) * 0.4)) scale(1.035); }
+  65%  { transform: translateY(0) scale(1.035); }
+  100% { transform: translateY(0) scale(1); }
+}
+@keyframes ot-move-down {
+  0%   { transform: translateY(var(--ot-slide, 0px)); }
+  30%  { transform: translateY(calc(var(--ot-slide, 0px) * 0.4)) scale(0.965); }
+  65%  { transform: translateY(0) scale(0.965); }
+  100% { transform: translateY(0) scale(1); }
+}
+@keyframes ot-glow {
+  0%   { opacity: 0; }
+  15%  { opacity: 1; }
+  70%  { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 .site-footer {

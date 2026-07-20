@@ -93,30 +93,60 @@ function DeltaChart({ tels }: { tels: (LapTelemetry | null)[] }) {
   )
 }
 
+/** codici del canale DRS grezzo con ala aperta */
+const DRS_OPEN = new Set([10, 12, 14])
+
+/** tratti [distanza inizio, fine] con DRS aperto lungo il giro */
+function drsRanges(tel: LapTelemetry): [number, number][] {
+  if (!tel.drs) return []
+  const out: [number, number][] = []
+  let open: number | null = null
+  for (let i = 0; i < tel.drs.length; i++) {
+    const isOpen = DRS_OPEN.has(tel.drs[i])
+    if (isOpen && open === null) open = tel.distance[i]
+    if (!isOpen && open !== null) {
+      out.push([open, tel.distance[i]])
+      open = null
+    }
+  }
+  if (open !== null) out.push([open, tel.distance[tel.distance.length - 1]])
+  return out
+}
+
 function Chart({ tels, field, height, label, unit }: {
   tels: (LapTelemetry | null)[]
-  field: 'speed' | 'throttle' | 'brake'
+  field: 'speed' | 'throttle' | 'brake' | 'rpm'
   height: number
   label: string
   unit: string
 }) {
   const W = 1000
   const series = tels.map(tel =>
-    tel ? { dist: tel.distance, vals: tel[field].map(Number) } : null)
+    tel && tel[field] ? { dist: tel.distance, vals: tel[field]!.map(Number) } : null)
   const present = series.filter(Boolean).map(s => s!)
   if (present.length === 0) return null
   const xMax = Math.max(...present.map(s => s.dist[s.dist.length - 1]), 1)
-  const yMax = field === 'speed'
+  const yMax = field === 'speed' || field === 'rpm'
     ? Math.max(...present.flatMap(s => s.vals), 1) * 1.05
     : field === 'throttle' ? 100 : 1
+  // strisce DRS in alto (solo grafico velocita', stagioni con il canale):
+  // una riga sottile per giro, dove l'ala era aperta
+  const drs = field === 'speed'
+    ? tels.map(tel => tel ? drsRanges(tel) : []) : []
+  const hasDrs = drs.some(r => r.length > 0)
 
   return (
     <div className="chart">
-      <div className="chart-label">{label} <span>{unit}</span></div>
+      <div className="chart-label">{label} <span>{unit}{hasDrs ? ' — strisce in alto: DRS aperto' : ''}</span></div>
       <svg viewBox={`0 0 ${W} ${height}`} preserveAspectRatio="none">
         {[0.25, 0.5, 0.75].map(f => (
           <line key={f} x1={0} x2={W} y1={height * f} y2={height * f} className="grid" />
         ))}
+        {drs.map((ranges, i) => ranges.map(([a, b], j) => (
+          <rect key={`${i}-${j}`} x={(a / xMax) * W} y={2 + i * 5}
+            width={Math.max(((b - a) / xMax) * W, 1)} height={3.2}
+            fill={COLORS[i]} opacity="0.85" />
+        )))}
         {series.map((s, i) => s && (
           <polyline key={i} points={path(s.dist, s.vals, W, height, xMax, 0, yMax)}
             fill="none" stroke={COLORS[i]} strokeWidth="1.5" />
@@ -243,6 +273,7 @@ export default function Compare({ year, event, session }: Props) {
       <Chart tels={tels} field="speed" height={260} label="Velocità" unit="km/h" />
       <Chart tels={tels} field="throttle" height={110} label="Acceleratore" unit="%" />
       <Chart tels={tels} field="brake" height={60} label="Freno" unit="on/off" />
+      <Chart tels={tels} field="rpm" height={140} label="Regime motore" unit="giri/min" />
       <p className="axis-note">asse orizzontale: distanza lungo il giro</p>
     </div>
   )

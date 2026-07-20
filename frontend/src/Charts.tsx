@@ -19,14 +19,22 @@ function fmtLap(s: number): string {
 }
 
 /** giri "puliti" come coppie [numero giro, tempo]: esclusi il via, i giri
- *  con sosta e quelli non interamente in bandiera verde */
+ *  con sosta e quelli non interamente in bandiera verde. Con il
+ *  TrackStatus per giro (dati nuovi) il filtro e' esatto per pilota;
+ *  altrimenti si ripiega sullo stato pista globale. */
 function cleanLapPairs(replay: ReplayData, d: ReplayDriver): [number, number][] {
+  const statusByLap = d.lap_status?.length
+    ? new Map(d.lap_status) : null
   const out: [number, number][] = []
   for (const [n, start, end] of d.laps) {
     if (end === null || n === 1) continue
     if (d.pits.some(([a, b]) => a <= end && (b ?? a + 60) >= start)) continue
-    if (trackStatusAt(replay.track_status, start) !== 1) continue
-    if (replay.track_status.some(([t, c]) => t > start && t < end && c !== 1)) continue
+    if (statusByLap) {
+      if (statusByLap.get(n) !== '1') continue
+    } else {
+      if (trackStatusAt(replay.track_status, start) !== 1) continue
+      if (replay.track_status.some(([t, c]) => t > start && t < end && c !== 1)) continue
+    }
     out.push([n, end - start])
   }
   return out
@@ -647,14 +655,161 @@ function TopSpeedChart({ replay }: { replay: ReplayData }) {
   )
 }
 
+/** Griglia → arrivo: slope chart con una linea per pilota; verde chi ha
+ *  guadagnato posizioni, rosso chi ne ha perse (risultati ufficiali). */
+function GridFinishChart({ replay }: { replay: ReplayData }) {
+  const W = 1000
+  const rowH = 20
+  const padX = 190
+
+  const data = useMemo(() => {
+    const colorIdx = new Map(replay.drivers.map((d, i) => [d.num, i]))
+    return replay.drivers
+      .map(d => {
+        const r = d.result
+        if (!r?.grid) return null
+        const fin = r.finish && /^\d+$/.test(r.finish) ? Number(r.finish) : null
+        return { d, color: teamColor(d.team, colorIdx.get(d.num) ?? 0),
+          grid: r.grid, fin, status: r.status, points: r.points }
+      })
+      .filter(Boolean).map(x => x!)
+  }, [replay])
+
+  if (data.length === 0) return null
+  const maxPos = Math.max(...data.map(x => Math.max(x.grid, x.fin ?? 0)),
+    data.length)
+  const H = maxPos * rowH + 24
+  const y = (p: number) => 8 + (p - 1) * rowH + rowH / 2
+  const dnf = data.filter(x => x.fin === null)
+    .sort((a, b) => a.grid - b.grid)
+
+  return (
+    <div className="chart">
+      <div className="chart-label">Griglia → arrivo <span>risultati ufficiali — verde: posizioni guadagnate, rosso: perse</span></div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="lap-chart">
+        {data.map(x => {
+          const gained = x.fin !== null && x.fin < x.grid
+          const lost = x.fin !== null && x.fin > x.grid
+          const stroke = gained ? '#2ecc71' : lost ? '#e74c3c' : '#777'
+          return (
+            <g key={x.d.num}>
+              <text x={padX - 10} y={y(x.grid)} textAnchor="end" fill={x.color}
+                fontSize="11" dominantBaseline="middle">
+                P{x.grid} {x.d.abbr}
+              </text>
+              {x.fin !== null ? (
+                <>
+                  <line x1={padX} y1={y(x.grid)} x2={W - padX} y2={y(x.fin)}
+                    stroke={stroke} strokeWidth="1.6" opacity="0.85" />
+                  <text x={W - padX + 10} y={y(x.fin)} fill={x.color}
+                    fontSize="11" dominantBaseline="middle">
+                    P{x.fin} {x.d.abbr}
+                    {x.points > 0 ? ` · ${x.points % 1 ? x.points : x.points.toFixed(0)} pt` : ''}
+                  </text>
+                </>
+              ) : (
+                <line x1={padX} y1={y(x.grid)} x2={padX + 60} y2={y(x.grid)}
+                  stroke="#555" strokeWidth="1.6" strokeDasharray="4 4" />
+              )}
+            </g>
+          )
+        })}
+        {dnf.map((x, i) => (
+          <text key={x.d.num} x={W - padX + 10}
+            y={y(data.filter(z => z.fin !== null).length + i + 1)}
+            fill="#777" fontSize="11" dominantBaseline="middle">
+            DNF {x.d.abbr}{x.status ? ` · ${x.status}` : ''}
+          </text>
+        ))}
+      </svg>
+    </div>
+  )
+}
+
+/** Velocita' massime ai rilevamenti ufficiali (speed trap del rettilineo,
+ *  intertempi, traguardo) — dal feed, non dalla telemetria campionata. */
+function SpeedTrapChart({ replay }: { replay: ReplayData }) {
+  const W = 1000
+  const H = 320
+  const padL = 56
+  const padB = 40
+  const padT = 24
+  const POINTS = [
+    { i: 4, label: 'speed trap', color: '#e8e8e8' },
+    { i: 1, label: 'intertempo 1', color: '#7fb2d9' },
+    { i: 2, label: 'intertempo 2', color: '#5a86a8' },
+    { i: 3, label: 'traguardo', color: '#3f6178' },
+  ] as const
+
+  const data = useMemo(() => {
+    const colorIdx = new Map(replay.drivers.map((d, i) => [d.num, i]))
+    return replay.drivers
+      .map(d => {
+        if (!d.traps?.length) return null
+        const max = POINTS.map(p =>
+          Math.max(...d.traps!.map(row => row[p.i] ?? 0)))
+        if (Math.max(...max) === 0) return null
+        return { d, color: teamColor(d.team, colorIdx.get(d.num) ?? 0), max }
+      })
+      .filter(Boolean).map(x => x!)
+      .sort((a, b) => b.max[0] - a.max[0])
+  }, [replay])
+
+  if (data.length === 0) return null
+  const all = data.flatMap(x => x.max).filter(v => v > 0)
+  const yMin = Math.floor(Math.min(...all) / 10) * 10 - 10
+  const yMax = Math.ceil(Math.max(...all) / 10) * 10
+  const y = (v: number) => padT + ((yMax - v) / (yMax - yMin)) * (H - padT - padB)
+  const slot = (W - padL) / data.length
+  const bw = Math.min(slot / 5.5, 8)
+
+  return (
+    <div className="chart">
+      <div className="chart-label">Velocità ai rilevamenti <span>massimo di sessione per pilota, km/h — ordinato per speed trap</span></div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="lap-chart">
+        {Array.from({ length: (yMax - yMin) / 10 + 1 }, (_, i) => yMin + i * 10).map(v => (
+          <g key={v}>
+            <line x1={padL} x2={W} y1={y(v)} y2={y(v)} className="grid" />
+            <text x={padL - 6} y={y(v)} textAnchor="end" fill="#666" fontSize="10"
+              dominantBaseline="middle">{v}</text>
+          </g>
+        ))}
+        {data.map((x, i) => {
+          const cx = padL + slot * i + slot / 2
+          return (
+            <g key={x.d.num}>
+              {POINTS.map((p, j) => x.max[j] > 0 && (
+                <rect key={p.i}
+                  x={cx + (j - 2) * bw} y={y(x.max[j])}
+                  width={bw - 1} height={y(yMin) - y(x.max[j])}
+                  fill={j === 0 ? x.color : p.color} opacity={j === 0 ? 1 : 0.55}
+                  rx="1" />
+              ))}
+              <text x={cx} y={y(Math.max(...x.max)) - 5} textAnchor="middle"
+                fill="#ccc" fontSize="9">{x.max[0].toFixed(0)}</text>
+              <text x={cx} y={H - padB + 14} textAnchor="middle" fill={x.color}
+                fontSize="10">{x.d.abbr}</text>
+            </g>
+          )
+        })}
+      </svg>
+      <p className="axis-note">
+        barra colorata: speed trap (rettilineo principale) — barre grigie/azzurre: intertempo 1, intertempo 2, traguardo
+      </p>
+    </div>
+  )
+}
+
 export default function Charts({ replay }: Props) {
   return (
     <div className="charts">
+      <GridFinishChart replay={replay} />
       <PaceChart replay={replay} />
       <AvgGapChart replay={replay} />
       <StrategyChart replay={replay} />
       <DegradationChart replay={replay} />
       <PitTimesChart replay={replay} />
+      <SpeedTrapChart replay={replay} />
       <TopSpeedChart replay={replay} />
       <LapChart replay={replay} />
       <GapChart replay={replay} />

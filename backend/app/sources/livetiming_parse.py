@@ -74,10 +74,16 @@ class LiveState:
         self.positions: dict[str, list[tuple[str, float, float]]] = {}  # num -> [(utc, x, y)]
         self.car_last: dict[str, dict[str, Any]] = {}      # num -> ultimi canali car
         self.championship: dict[str, Any] = {}
+        self.clock: dict[str, Any] = {}                    # ExtrapolatedClock (countdown)
+        self.session_status: str = ""                      # Started | Aborted | Finished | ...
+        self.session_part: int | None = None               # 1/2/3 in qualifica
+        self.last_ts: str = ""                             # ultimo timestamp visto nello stream
         self.messages = 0
 
     def feed(self, topic: str, payload: Any, ts: str) -> None:
         self.messages += 1
+        if ts > self.last_ts:
+            self.last_ts = ts
         if isinstance(payload, str):
             # .z: base64+deflate; altri topic a volte arrivano come JSON string
             try:
@@ -102,6 +108,11 @@ class LiveState:
                     deep_merge(self.drivers.setdefault(num, {}), info)
 
     def _on_TimingData(self, p: Any, ts: str) -> None:
+        # in qualifica il feed marca qui la manche corrente (1/2/3)
+        try:
+            self.session_part = int(p["SessionPart"])
+        except (KeyError, TypeError, ValueError):
+            pass
         for num, line in (p.get("Lines") or {}).items():
             deep_merge(self.timing.setdefault(num, {}), line)
 
@@ -137,6 +148,30 @@ class LiveState:
 
     def _on_ChampionshipPrediction(self, p: Any, ts: str) -> None:
         deep_merge(self.championship, p)
+
+    def _on_ExtrapolatedClock(self, p: Any, ts: str) -> None:
+        # countdown della sessione: Utc di riferimento + Remaining "HH:MM:SS";
+        # Extrapolating False = orologio fermo (es. bandiera rossa)
+        deep_merge(self.clock, p)
+
+    def _on_SessionStatus(self, p: Any, ts: str) -> None:
+        status = p.get("Status")
+        if status:
+            self.session_status = str(status)
+
+    def _on_SessionData(self, p: Any, ts: str) -> None:
+        # Series: avanzamento di manche in qualifica; StatusSeries: stato sessione
+        for e in _listify(p.get("Series")):
+            part = e.get("QualifyingPart") if isinstance(e, dict) else None
+            if part is not None:
+                try:
+                    self.session_part = int(part)
+                except (TypeError, ValueError):
+                    pass
+        for e in _listify(p.get("StatusSeries")):
+            status = e.get("SessionStatus") if isinstance(e, dict) else None
+            if status:
+                self.session_status = str(status)
 
     def _on_Position_z(self, p: Any, ts: str) -> None:
         for batch in p.get("Position", []):

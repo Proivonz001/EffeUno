@@ -7,6 +7,8 @@ export default defineConfig({
   base: process.env.VITE_DEMO === '1' || process.env.VITE_DATA_BASE ? '/EffeUno/' : '/',
   plugins: [react()],
   server: {
+    // PORT dall'ambiente: consente piu' dev server in parallelo
+    port: Number(process.env.PORT) || 5173,
     proxy: {
       // il backend FastAPI gira su :8000 (vedi backend/app/main.py)
       '/api': 'http://localhost:8000',

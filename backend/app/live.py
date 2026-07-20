@@ -35,11 +35,21 @@ def _ts_seconds(ts: str) -> float | None:
         return None
 
 
+def _hms_seconds(text: str) -> int | None:
+    """'HH:MM:SS' del feed (Remaining) in secondi."""
+    try:
+        h, m, s = (int(x) for x in text.split(":"))
+        return h * 3600 + m * 60 + s
+    except (AttributeError, ValueError):
+        return None
+
+
 class LiveSource:
     def __init__(self) -> None:
         self._state: LiveState | None = None
         self._mode = "off"          # off | replay | live
         self._label = ""
+        self._speed = 1.0           # velocita' del replayer (1 = tempo reale)
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
@@ -60,6 +70,7 @@ class LiveSource:
         self._state = LiveState()
         self._mode = "replay"
         self._label = f"{name} ×{speed:g}"
+        self._speed = speed
         self._stop.clear()
         self._thread = threading.Thread(
             target=self._replay_worker, args=(path, speed), daemon=True)
@@ -113,8 +124,12 @@ class LiveSource:
             return {
                 "mode": self._mode,
                 "label": self._label,
+                "speed": self._speed,
                 "session": s.session_info,
                 "lap_count": s.lap_count,
+                "session_part": s.session_part,
+                "session_status": s.session_status,
+                "clock": self._clock(s),
                 "tower": self._tower(s),
                 "positions": self._positions(s, pos_after),
                 "track_status": s.track_status[-1][1] if s.track_status else 1,
@@ -123,6 +138,25 @@ class LiveSource:
                 "radio": s.radio[-10:],
                 "championship": s.championship or None,
             }
+
+    @staticmethod
+    def _clock(s: LiveState) -> dict[str, Any] | None:
+        """Countdown della sessione al tempo corrente dello stream.
+
+        ExtrapolatedClock da' Remaining a un certo Utc; se Extrapolating il
+        tempo scorre e va scalato di quanto stream e' passato da quell'Utc
+        (cosi' il conto e' giusto anche nel replayer accelerato)."""
+        remaining = _hms_seconds(s.clock.get("Remaining", ""))
+        if remaining is None:
+            return None
+        extrapolating = bool(s.clock.get("Extrapolating"))
+        if extrapolating:
+            ref = _ts_seconds(s.clock.get("Utc", ""))
+            now = _ts_seconds(s.last_ts)
+            if ref is not None and now is not None and now > ref:
+                remaining -= now - ref
+        return {"remaining": max(0, round(remaining)),
+                "running": extrapolating}
 
     @staticmethod
     def _positions(s: LiveState, after: str | None) -> dict[str, list]:

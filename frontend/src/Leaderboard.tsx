@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import type { ReplayData, ReplayDriver } from './api'
+import { fxProps, useOvertakeFx } from './overtakeFx'
 import { teamColor } from './palette'
 import { contrastColor, lapTimesAt, sectorsAt, standingsAt, standingsQualiAt, TYRE_COLORS } from './replay'
 import type { SectorClass } from './replay'
@@ -61,9 +62,11 @@ export default function Leaderboard({ replay, time, mode, focus, onFocus }: Prop
     () => new Map(replay.drivers.map((d, i) => [d.num, i])),
     [replay],
   )
+  const { ref: boardRef, fx } = useOvertakeFx(
+    rows.map(r => r.driver.num), 1, replay)
 
   return (
-    <div className="leaderboard">
+    <div className="leaderboard" ref={boardRef}>
       <table>
         <thead>
           <tr>
@@ -85,13 +88,29 @@ export default function Leaderboard({ replay, time, mode, focus, onFocus }: Prop
             const bg = teamColor(r.driver.team, colorIndex.get(r.driver.num) ?? 0)
             const sec = sectors.get(r.driver.num)
             const lt = lapTimes.get(r.driver.num)
+            const f = fxProps(fx.get(r.driver.num))
+            const res = r.driver.result
+            // ritiro col motivo ufficiale (Collision, Engine, ...): i
+            // piazzati a giri pieni ("Finished"/"+1 Lap") non lo mostrano
+            const outReason = r.out && res?.status
+              && !/Finished|Lap/.test(res.status) ? res.status : null
+            const delta = mode === 'race' && !r.out && res?.grid
+              ? res.grid - r.pos : null
             return (
               <tr
                 key={r.driver.num}
-                className={(r.out ? 'out' : '') + (focus === r.driver.num ? ' focus' : '')}
+                style={f.style}
+                className={(r.out ? 'out' : '') + (focus === r.driver.num ? ' focus' : '') + ' ' + f.cls}
                 onClick={() => onFocus(focus === r.driver.num ? null : r.driver.num)}
               >
-                <td className="pos">{r.pos}</td>
+                <td className="pos" title={res?.grid ? `partito P${res.grid}` : undefined}>
+                  {r.pos}
+                  {delta !== null && delta !== 0 && (
+                    <span className={`grid-delta ${delta > 0 ? 'up' : 'down'}`}>
+                      {delta > 0 ? '▲' : '▼'}{Math.abs(delta)}
+                    </span>
+                  )}
+                </td>
                 <td>
                   <span className="tag" style={{ background: bg, color: contrastColor(bg) }}>
                     {r.driver.abbr}
@@ -107,7 +126,12 @@ export default function Leaderboard({ replay, time, mode, focus, onFocus }: Prop
                     </span>
                   ))}
                 </td>
-                <td className="sectors" title="settori del giro in corso — viola: best assoluto, verde: best personale, giallo: piu' lento">
+                <td className="sectors" title={r.out && outReason
+                  ? `ritiro: ${outReason}`
+                  : "settori del giro in corso — viola: best assoluto, verde: best personale, giallo: piu' lento"}>
+                  {r.out && outReason && (
+                    <span className="out-reason">{outReason}</span>
+                  )}
                   {!r.out && [0, 1, 2].map(i => {
                     const s = sec?.sectors[i]
                     return (

@@ -21,6 +21,8 @@ app.add_middleware(
         # (raggiungibile solo dai dispositivi del proprietario via Tailscale)
         "https://proivonz001.github.io",
     ],
+    # sviluppo: qualunque porta locale (vite sceglie la prima libera)
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )

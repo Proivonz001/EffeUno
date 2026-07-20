@@ -109,6 +109,95 @@ class FastF1Session(LoadedSession):
             for _, lap in laps.sort_values("LapNumber").iterrows()
         ]
 
+    def _speed_traps(self, laps: pd.DataFrame) -> list[list[Any]]:
+        """[giro, I1, I2, FL, ST] km/h ai rilevamenti (None se mancante):
+        intertempo 1/2, traguardo, speed trap del rettilineo principale."""
+        def v(x: Any) -> float | None:
+            return round(float(x), 0) if pd.notna(x) else None
+        out = []
+        for _, lap in laps.sort_values("LapNumber").iterrows():
+            row = [int(lap["LapNumber"]), v(lap["SpeedI1"]), v(lap["SpeedI2"]),
+                   v(lap["SpeedFL"]), v(lap["SpeedST"])]
+            if any(x is not None for x in row[1:]):
+                out.append(row)
+        return out
+
+    def _deleted_laps(self, laps: pd.DataFrame) -> list[list[Any]]:
+        """Giri cancellati con flag UFFICIALE del feed: [t fine giro, giro,
+        motivo]. Piu' affidabile della regex sui messaggi direzione gara."""
+        out: list[list[Any]] = []
+        for _, lap in laps.sort_values("LapNumber").iterrows():
+            if not (pd.notna(lap.get("Deleted")) and bool(lap["Deleted"])):
+                continue
+            start = lap["LapStartTime"]
+            lt = lap["LapTime"]
+            if pd.isna(start):
+                continue
+            t = start.total_seconds() - self._t0 + \
+                (lt.total_seconds() if pd.notna(lt) else 0)
+            reason = str(lap["DeletedReason"]) if pd.notna(lap.get("DeletedReason")) else ""
+            out.append([round(t, 1), int(lap["LapNumber"]), reason.strip()])
+        return out
+
+    def _lap_status(self, laps: pd.DataFrame) -> list[list[Any]]:
+        """[giro, TrackStatus] per giro: stringa di codici attraversati
+        ('1' verde, '2' gialla, '4' SC, '5' rossa, '6/7' VSC — '67' = piu'
+        stati nello stesso giro). Serve a marcare i giri sporchi con
+        precisione per pilota."""
+        out = []
+        for _, lap in laps.sort_values("LapNumber").iterrows():
+            st = lap.get("TrackStatus")
+            out.append([int(lap["LapNumber"]),
+                        str(st) if pd.notna(st) else ""])
+        return out
+
+    def _results(self) -> dict[str, dict[str, Any]]:
+        """Risultati ufficiali per pilota: griglia, classifica finale,
+        stato (Finished/+1 Lap/Collision/...), punti e — in qualifica —
+        i tempi ufficiali di Q1/Q2/Q3 (chi non ha il Q2 e' eliminato in Q1)."""
+        res = self._s.results
+        if res is None or res.empty:
+            return {}
+        def num_or_none(v: Any) -> float | None:
+            v = _clean(v)
+            return None if v is None else float(v)
+        def sec(v: Any) -> float | None:
+            return round(v.total_seconds(), 3) if pd.notna(v) else None
+        out: dict[str, dict[str, Any]] = {}
+        for _, r in res.iterrows():
+            grid = num_or_none(r.get("GridPosition"))
+            pts = num_or_none(r.get("Points"))
+            out[str(r["DriverNumber"])] = {
+                "grid": int(grid) if grid else None,   # 0/None = via dalla pit
+                "finish": _clean(r.get("ClassifiedPosition")) or None,
+                "status": _clean(r.get("Status")) or None,
+                "points": pts if pts else 0,
+                "q1": sec(r.get("Q1")),
+                "q2": sec(r.get("Q2")),
+                "q3": sec(r.get("Q3")),
+            }
+        return out
+
+    def _circuit(self) -> tuple[list[list[Any]], list[list[Any]]]:
+        """(curve numerate, postazioni marshal) da get_circuit_info():
+        [x, y, etichetta, angolo] — l'angolo orienta l'etichetta fuori
+        dal nastro. Geometria REALE, niente piu' settori approssimati."""
+        try:
+            info = self._s.get_circuit_info()
+        except Exception:
+            return [], []
+        def rows(df: Any) -> list[list[Any]]:
+            out = []
+            if df is None or df.empty:
+                return out
+            for _, r in df.iterrows():
+                label = f"{int(r['Number'])}{r['Letter'] or ''}" \
+                    if pd.notna(r.get("Number")) else ""
+                out.append([round(float(r["X"]), 1), round(float(r["Y"]), 1),
+                            label, round(float(r.get("Angle", 0)), 1)])
+            return out
+        return rows(info.corners), rows(info.marshal_sectors)
+
     def _race_control(self) -> tuple[dict[str, list], dict[str, list]]:
         """Dai messaggi della direzione gara: (giri cancellati per track
         limits, penalita') per numero pilota, tempi relativi allo start."""
@@ -249,6 +338,40 @@ class FastF1Session(LoadedSession):
             out.append([t, int(sec.group(1)), code])
         return out
 
+    # durate regolamentari delle manche in minuti: qualifica e Sprint
+    QUALI_MINUTES = (18, 15, 12)
+    SPRINT_QUALI_MINUTES = (12, 10, 8)
+
+    def _quali_segments(self) -> list[dict[str, Any]]:
+        """Manche Q1/Q2/Q3 dal session_status: una per ogni coppia
+        Started->Finished; un Aborted dentro la manche e' bandiera rossa
+        (countdown fermo) e il Started successivo la riprende."""
+        if "Qualifying" not in self._s.name and "Shootout" not in self._s.name:
+            return []
+        minutes = (self.SPRINT_QUALI_MINUTES if "Sprint" in self._s.name
+                   or "Shootout" in self._s.name else self.QUALI_MINUTES)
+        segments: list[dict[str, Any]] = []
+        cur: dict[str, Any] | None = None
+        for _, row in self._s.session_status.iterrows():
+            t = round(row["Time"].total_seconds() - self._t0, 1)
+            status = row["Status"]
+            if status == "Started":
+                if cur is None:
+                    part = len(segments) + 1
+                    cur = {"part": part, "start": t, "end": None, "pauses": [],
+                           "duration": minutes[min(part, 3) - 1] * 60}
+                elif cur["pauses"] and cur["pauses"][-1][1] is None:
+                    cur["pauses"][-1][1] = t
+            elif status == "Aborted" and cur is not None:
+                cur["pauses"].append([t, None])
+            elif status in ("Finished", "Ends") and cur is not None:
+                cur["end"] = t
+                segments.append(cur)
+                cur = None
+        if cur is not None:  # sessione interrotta/in corso a fine dati
+            segments.append(cur)
+        return segments
+
     @staticmethod
     def _pit_lane_polyline(drivers: list[dict[str, Any]]) -> list[list[float]]:
         """Percorso della pit lane: la traversata dei box reale (ingresso ->
@@ -268,6 +391,7 @@ class FastF1Session(LoadedSession):
         drivers = []
         duration = 0.0
         tl_events, penalties = self._race_control()
+        results = self._results()
         for num in s.drivers:
             pos = s.pos_data.get(num)
             if pos is None or pos.empty:
@@ -310,6 +434,10 @@ class FastF1Session(LoadedSession):
                     "sectors": self._sectors(drv_laps),
                     "tl": tl_events.get(num, []),
                     "penalties": penalties.get(num, []),
+                    "traps": self._speed_traps(drv_laps),
+                    "deleted": self._deleted_laps(drv_laps),
+                    "lap_status": self._lap_status(drv_laps),
+                    "result": results.get(num),
                 })
 
         ref_lap = s.laps.pick_fastest()
@@ -324,9 +452,12 @@ class FastF1Session(LoadedSession):
         ]
 
         drs_zones, detection_points = self._drs_geometry(tel)
+        corners, marshal_sectors = self._circuit()
         return {
             "duration_s": round(duration, 1),
             "track": track,
+            "corners": corners,
+            "marshal_sectors": marshal_sectors,
             "pit_lane": self._pit_lane_polyline(drivers),
             "sector_marks": self._sector_marks(ref_lap, tel),
             "drs_zones": drs_zones,
@@ -334,6 +465,7 @@ class FastF1Session(LoadedSession):
             "sector_flags": self._sector_flags(),
             "drivers": drivers,
             "track_status": track_status,
+            "quali_segments": self._quali_segments(),
         }
 
     def laps(self) -> list[dict[str, Any]]:
@@ -347,6 +479,8 @@ class FastF1Session(LoadedSession):
                 "time_s": round(lt.total_seconds(), 3) if pd.notna(lt) else None,
                 "compound": _clean(lap["Compound"]),
                 "accurate": bool(lap["IsAccurate"]),
+                "status": str(lap["TrackStatus"]) if pd.notna(lap["TrackStatus"]) else "",
+                "deleted": bool(lap["Deleted"]) if pd.notna(lap.get("Deleted")) else False,
             })
         return out
 
@@ -441,7 +575,7 @@ class FastF1Session(LoadedSession):
         # tempo dall'inizio del giro, per il delta cumulativo tra due giri
         t = tel["Time"].dt.total_seconds()
         t = t - t.iloc[0]
-        return {
+        out = {
             "driver": driver,
             "lap": lap,
             "time": [round(v, 3) for v in t],
@@ -450,9 +584,14 @@ class FastF1Session(LoadedSession):
             "throttle": [round(v, 1) for v in tel["Throttle"]],
             "brake": [bool(v) for v in tel["Brake"]],
             "gear": [int(v) for v in tel["nGear"]],
+            "rpm": [int(v) for v in tel["RPM"]],
             "x": [round(v, 1) for v in tel["X"]],
             "y": [round(v, 1) for v in tel["Y"]],
         }
+        # canale DRS solo dove significa qualcosa (dal 2026 e' sempre 0)
+        if int(self._s.event["EventDate"].year) < 2026:
+            out["drs"] = [int(v) for v in tel["DRS"]]
+        return out
 
 
 class FastF1Source(DataSource):

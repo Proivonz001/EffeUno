@@ -69,6 +69,23 @@ export default function TrackMap({ replay, time, focus, onFocus, wind }: Props) 
     const totalLen = cum[cum.length - 1] || 1
     const maxSector = Math.max(...replay.sector_flags.map(f => f[1]), 0)
 
+    // postazioni marshal reali (dati nuovi): il settore N va dalla
+    // postazione N alla N+1; ogni postazione proiettata sul nastro come
+    // distanza cumulata. Se assenti si torna ai tratti uguali.
+    const nearestCum = (mx: number, my: number): number => {
+      let best = 0
+      let bestD = Infinity
+      replay.track.forEach((p, j) => {
+        const dd = (p[0] - mx) ** 2 + (p[1] - my) ** 2
+        if (dd < bestD) { bestD = dd; best = j }
+      })
+      return cum[best]
+    }
+    const posts = (replay.marshal_sectors ?? [])
+      .map(m => ({ n: parseInt(m[2]) || 0, d: nearestCum(m[0], m[1]) }))
+      .filter(p => p.n > 0)
+      .sort((a, b) => a.n - b.n)
+
     const toScreen = (x: number, y: number): [number, number] => {
       const pad = 30 * devicePixelRatio
       const s = Math.min(
@@ -166,8 +183,21 @@ export default function TrackMap({ replay, time, focus, onFocus, wind }: Props) 
       })
       ctx.lineWidth = ribbon
 
-      // settori marshal con bandiera gialla al tempo t: tratti approssimati
-      // (lunghezze uguali dal traguardo), doppia gialla piu' accesa
+      // settori marshal con bandiera gialla al tempo t: geometria reale
+      // dalle postazioni (dati nuovi) o tratti uguali come ripiego;
+      // doppia gialla piu' accesa
+      const strokeRange = (d0: number, d1: number) => {
+        ctx.beginPath()
+        let started = false
+        for (let i = 0; i < replay.track.length; i++) {
+          if (cum[i] < d0) continue
+          if (cum[i] > d1) break
+          const [x, y] = toScreen(replay.track[i][0], replay.track[i][1])
+          if (!started) { ctx.moveTo(x, y); started = true }
+          else ctx.lineTo(x, y)
+        }
+        ctx.stroke()
+      }
       if (maxSector > 0) {
         const active = new Map<number, number>()
         for (const [ts, sec, code] of replay.sector_flags) {
@@ -176,19 +206,35 @@ export default function TrackMap({ replay, time, focus, onFocus, wind }: Props) 
           else active.set(sec, code)
         }
         for (const [sec, code] of active) {
-          const d0 = ((sec - 1) / maxSector) * totalLen
-          const d1 = (sec / maxSector) * totalLen
           ctx.strokeStyle = code === 3 ? '#d1a91c' : '#a8891c'
-          ctx.beginPath()
-          let started = false
-          for (let i = 0; i < replay.track.length; i++) {
-            if (cum[i] < d0) continue
-            if (cum[i] > d1) break
-            const [x, y] = toScreen(replay.track[i][0], replay.track[i][1])
-            if (!started) { ctx.moveTo(x, y); started = true }
-            else ctx.lineTo(x, y)
+          const post = posts.find(p => p.n === sec)
+          if (post) {
+            const next = posts[(posts.indexOf(post) + 1) % posts.length]
+            if (next.d > post.d) {
+              strokeRange(post.d, next.d)
+            } else {           // il settore scavalca il traguardo
+              strokeRange(post.d, totalLen)
+              strokeRange(0, next.d)
+            }
+          } else {
+            strokeRange(((sec - 1) / maxSector) * totalLen,
+              (sec / maxSector) * totalLen)
           }
-          ctx.stroke()
+        }
+      }
+
+      // numeri di curva (dati nuovi): etichetta spostata fuori dal nastro
+      // lungo l'angolo fornito dal feed
+      if (replay.corners?.length) {
+        ctx.fillStyle = '#5a5a5a'
+        ctx.font = `600 ${8 * dpr}px system-ui`
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        for (const [mx, my, label, angle] of replay.corners) {
+          const a = (angle * Math.PI) / 180
+          const off = 280   // ~28 m fuori dal nastro, in unita' dati
+          const [x, y] = toScreen(mx + off * Math.cos(a), my + off * Math.sin(a))
+          ctx.fillText(label, x, y)
         }
       }
 
@@ -398,5 +444,5 @@ export default function TrackMap({ replay, time, focus, onFocus, wind }: Props) 
     }
   }, [replay, colors, retireAt])
 
-  return <canvas ref={canvasRef} className="track-map" title="rotellina: zoom — trascina: sposta — doppio click: reset — click su un pilota: focus — tratti gialli: settori marshal, posizione approssimata" />
+  return <canvas ref={canvasRef} className="track-map" title="rotellina: zoom — trascina: sposta — doppio click: reset — click su un pilota: focus — tratti gialli: settori marshal (geometria reale se nei dati, altrimenti approssimata)" />
 }

@@ -82,6 +82,51 @@ export const STATUS_INFO: Record<number, { label: string; color: string }> = {
   7: { label: 'VSC', color: '#f1c40f' },
 }
 
+export interface QualiClock {
+  /** 1/2/3 -> Q1/Q2/Q3 */
+  part: number
+  /** secondi al termine della manche (countdown regolamentare) */
+  remaining: number
+  /** true tra le manche o in bandiera rossa: il countdown e' fermo */
+  paused: boolean
+}
+
+/** Manche e countdown al tempo t del replay. Il tempo verde scorre dal via
+ *  della manche escludendo le pause (bandiere rosse); tra una manche e la
+ *  successiva mostra la prossima, piena e ferma. */
+export function qualiClockAt(replay: ReplayData, t: number): QualiClock | null {
+  const segs = replay.quali_segments
+  if (!segs?.length) return null
+  // prima del via: Q1 piena e ferma
+  if (t < segs[0].start) {
+    return { part: segs[0].part, remaining: segs[0].duration, paused: true }
+  }
+  for (let i = 0; i < segs.length; i++) {
+    const s = segs[i]
+    if (s.end !== null && t > s.end) {
+      const next = segs[i + 1]
+      if (next && t < next.start) {
+        return { part: next.part, remaining: next.duration, paused: true }
+      }
+      continue
+    }
+    if (t < s.start) break
+    // dentro la manche: tempo verde = trascorso meno le pause gia' consumate
+    let elapsed = t - s.start
+    let paused = false
+    for (const [p0, p1] of s.pauses) {
+      if (t < p0) break
+      const pEnd = p1 ?? t
+      elapsed -= Math.min(t, pEnd) - p0
+      if (t <= pEnd) paused = true
+    }
+    return { part: s.part, remaining: Math.max(0, s.duration - elapsed), paused }
+  }
+  // dopo l'ultima manche: countdown a zero
+  const last = segs[segs.length - 1]
+  return { part: last.part, remaining: 0, paused: true }
+}
+
 /** Testo nero o bianco a seconda della luminosita' dello sfondo. */
 export function contrastColor(hex: string): string {
   const n = parseInt(hex.slice(1), 16)
@@ -304,6 +349,10 @@ export interface Standing {
   lap: number
   progress: number
   gapText: string
+  /** tempo usato per l'ordinamento in qualifica (best della manche) */
+  qTime?: number | null
+  /** manche di eliminazione (1 = fuori in Q1, 2 = fuori in Q2), null se in corsa */
+  elim?: number | null
   /** distacco dal pilota davanti, in secondi */
   interval: number | null
   /** overtake/DRS disponibile: gara verde, non ai box, distacco < 1s */
@@ -319,35 +368,129 @@ export interface Standing {
   penalty: string | null
 }
 
-/** Classifica di qualifica/prove al tempo t: ordina per miglior giro,
- *  gap in millesimi dalla pole provvisoria. */
+/** Miglior giro di ogni pilota DENTRO una manche, al tempo t: conta il
+ *  giro chiuso dopo il via della manche e iniziato prima della bandiera. */
+function segmentBests(
+  replay: ReplayData, seg: { start: number; end: number | null }, t: number,
+): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const d of replay.drivers) {
+    for (const [, start, end] of d.laps) {
+      if (end === null || end > t || end < seg.start) continue
+      if (seg.end !== null && start > seg.end) continue
+      const lapTime = end - start
+      if (lapTime > 0 && lapTime < (out.get(d.num) ?? Infinity)) {
+        out.set(d.num, lapTime)
+      }
+    }
+  }
+  return out
+}
+
+/** Classifica di qualifica/prove al tempo t. Con le manche note
+ *  (quali_segments) replica il format vero: in Q2/Q3 si riparte da zero,
+ *  gli eliminati restano in fondo congelati sul risultato della loro
+ *  manche. Senza manche (prove, dati vecchi): miglior giro di sessione. */
 export function standingsQualiAt(replay: ReplayData, t: number): Standing[] {
-  const times = lapTimesAt(replay, t)
-  const rows = replay.drivers.map(driver => ({ driver, lt: times.get(driver.num) }))
-  rows.sort((a, b) => (a.lt?.best ?? Infinity) - (b.lt?.best ?? Infinity))
-  const pole = rows[0]?.lt?.best ?? null
-  return rows.map((r, i) => {
-    const best = r.lt?.best ?? null
-    const prev = i > 0 ? rows[i - 1].lt?.best ?? null : null
-    const lap = Math.floor(progressAt(r.driver.laps, t)) + 1
+  const segs = replay.quali_segments ?? []
+  const common = (driver: ReplayDriver) => {
+    const lap = Math.floor(progressAt(driver.laps, t)) + 1
     return {
-      driver: r.driver,
-      pos: i + 1,
+      driver,
       lap,
       progress: 0,
+      drs: false,
+      inPit: inPit(driver.pits, t),
+      out: false,
+      tyre: tyreAt(driver, lap),
+      pitCount: driver.pits.filter(p => p[0] <= t).length,
+      tlCount: driver.tl.filter(x => x <= t).length,
+      penalty: null,
+    }
+  }
+
+  if (segs.length === 0 || t < segs[0].start) {
+    // formato semplice: miglior giro dell'intera sessione
+    const times = lapTimesAt(replay, t)
+    const rows = replay.drivers.map(driver => ({ driver, lt: times.get(driver.num) }))
+    rows.sort((a, b) => (a.lt?.best ?? Infinity) - (b.lt?.best ?? Infinity))
+    const pole = rows[0]?.lt?.best ?? null
+    return rows.map((r, i) => {
+      const best = r.lt?.best ?? null
+      const prev = i > 0 ? rows[i - 1].lt?.best ?? null : null
+      return {
+        ...common(r.driver),
+        pos: i + 1,
+        qTime: best,
+        elim: null,
+        gapText: best === null ? '—'
+          : i === 0 ? 'Pole'
+          : pole === null ? '—' : `+${(best - pole).toFixed(3)}`,
+        interval: best !== null && prev !== null ? best - prev : null,
+      }
+    })
+  }
+
+  // manche corrente: l'ultima gia' iniziata (tra una manche e l'altra
+  // vale ancora la classifica della precedente)
+  let cur = segs[0]
+  for (const s of segs) if (t >= s.start) cur = s
+  // quante auto passano il taglio: -5 a manche (20 -> 15 -> 10)
+  const n = replay.drivers.length
+  const bestsBySeg = segs.map(s => segmentBests(replay, s, t))
+
+  // eliminati delle manche gia' concluse (mai l'ultima: in Q3 non si
+  // elimina), dal fondo della loro classifica
+  const elimOf = new Map<string, number>()  // num -> parte di eliminazione
+  for (let k = 0;
+    k < segs.length - 1 && segs[k].end !== null && t > segs[k].end!; k++) {
+    const keep = Math.max(n - 5 * (k + 1), 0)
+    const inRace = replay.drivers.filter(d => !elimOf.has(d.num))
+    inRace.sort((a, b) =>
+      (bestsBySeg[k].get(a.num) ?? Infinity) - (bestsBySeg[k].get(b.num) ?? Infinity))
+    for (const d of inRace.slice(keep)) elimOf.set(d.num, segs[k].part)
+  }
+
+  const curBests = bestsBySeg[segs.indexOf(cur)]
+  const active = replay.drivers.filter(d => !elimOf.has(d.num))
+  active.sort((a, b) =>
+    (curBests.get(a.num) ?? Infinity) - (curBests.get(b.num) ?? Infinity))
+
+  const rows: Standing[] = []
+  const pole = active.length ? curBests.get(active[0].num) ?? null : null
+  active.forEach((d, i) => {
+    const best = curBests.get(d.num) ?? null
+    const prev = i > 0 ? curBests.get(active[i - 1].num) ?? null : null
+    rows.push({
+      ...common(d),
+      pos: i + 1,
+      qTime: best,
+      elim: null,
       gapText: best === null ? '—'
         : i === 0 ? 'Pole'
         : pole === null ? '—' : `+${(best - pole).toFixed(3)}`,
       interval: best !== null && prev !== null ? best - prev : null,
-      drs: false,
-      inPit: inPit(r.driver.pits, t),
-      out: false,
-      tyre: tyreAt(r.driver, lap),
-      pitCount: r.driver.pits.filter(p => p[0] <= t).length,
-      tlCount: r.driver.tl.filter(x => x <= t).length,
-      penalty: null,
-    }
+    })
   })
+  // gruppi eliminati: prima i fuori in Q2, poi i fuori in Q1, ciascuno
+  // ordinato sul tempo della propria manche
+  for (let part = cur.part - 1; part >= 1; part--) {
+    const bests = bestsBySeg[part - 1]
+    const group = replay.drivers.filter(d => elimOf.get(d.num) === part)
+    group.sort((a, b) =>
+      (bests.get(a.num) ?? Infinity) - (bests.get(b.num) ?? Infinity))
+    for (const d of group) {
+      rows.push({
+        ...common(d),
+        pos: rows.length + 1,
+        qTime: bests.get(d.num) ?? null,
+        elim: part,
+        gapText: `ELIM Q${part}`,
+        interval: null,
+      })
+    }
+  }
+  return rows
 }
 
 /** Classifica al tempo t, calcolata dal progresso sulla timeline dei giri. */

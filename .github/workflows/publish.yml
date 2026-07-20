@@ -1,12 +1,12 @@
-# Auto-publisher: nei weekend controlla se una sessione e' appena finita
-# e la pubblica su R2 (i file statici livetiming si sbloccano a fine
-# sessione, senza autenticazione). Lanciabile anche a mano.
+# Auto-publisher: controlla se una sessione e' appena finita e la
+# pubblica su R2. NIENTE cron: i runner GitHub sono IP datacenter e
+# F1 risponde 403 su tutto (verificato nel weekend di Spa 2026) — la
+# pubblicazione automatica gira sulla VM Oracle via WARP (crontab).
+# Questo workflow resta lanciabile a mano come ripiego (fallira'
+# finche' il blocco IP resta, ma non costa nulla tenerlo).
 name: publish-sessions
 
 on:
-  schedule:
-    - cron: "*/30 9-23 * * 5,6"   # venerdi' e sabato
-    - cron: "*/30 11-22 * * 0"    # domenica
   workflow_dispatch:
 
 concurrency:

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { API_BASE } from './api'
 import { TyreIcon } from './Leaderboard'
+import { fmtRemaining } from './QualiTower'
+import { fxProps, useOvertakeFx } from './overtakeFx'
 import { teamColor } from './palette'
 import { contrastColor } from './replay'
 
@@ -45,8 +47,15 @@ interface TowerRow {
 interface LiveSnapshot {
   mode: string
   label?: string
+  /** velocita' del replayer (1 in sessione vera): scala il tick del countdown */
+  speed?: number
   session?: Record<string, unknown>
   lap_count?: { CurrentLap?: number; TotalLaps?: number }
+  /** manche di qualifica corrente (1/2/3), null nelle altre sessioni */
+  session_part?: number | null
+  session_status?: string
+  /** countdown sessione dal feed; running=false -> orologio fermo */
+  clock?: { remaining: number; running: boolean } | null
   tower?: TowerRow[]
   positions?: Record<string, [string, number, number][]>
   track_status?: number
@@ -137,6 +146,10 @@ export default function Live() {
   const [error, setError] = useState('')
   const positionsRef = useRef(new Map<string, [number, number][]>())
   const cursorRef = useRef<string | null>(null)
+  // istante di ricezione dell'ultimo snapshot: il countdown scorre in
+  // locale tra un poll e l'altro (scalato per la velocita' del replayer)
+  const clockAtRef = useRef(0)
+  const [, tickClock] = useState(0)
 
   useEffect(() => {
     let stop = false
@@ -156,6 +169,7 @@ export default function Live() {
           // limite memoria: basta l'ultima ora abbondante
           positionsRef.current.set(num, arr.slice(-9000))
         }
+        clockAtRef.current = Date.now()
         setSnap(d)
         setError('')
       } catch (e) {
@@ -182,8 +196,21 @@ export default function Live() {
     }
   }
 
+  // tick a 1Hz solo quando c'e' un countdown che scorre
+  useEffect(() => {
+    if (!snap.clock?.running) return
+    const iv = setInterval(() => tickClock(x => x + 1), 1000)
+    return () => clearInterval(iv)
+  }, [snap.clock?.running])
+
   const tower = useMemo(() => snap.tower ?? [], [snap])
+  const { ref: towerRef, fx } = useOvertakeFx(
+    tower.map(r => r.num), 2, snap.label)
   const wx = snap.weather ?? {}
+  const remaining = snap.clock == null ? null
+    : !snap.clock.running ? snap.clock.remaining
+    : Math.max(0, snap.clock.remaining
+        - (Date.now() - clockAtRef.current) / 1000 * (snap.speed ?? 1))
 
   return (
     <div className="live">
@@ -211,6 +238,23 @@ export default function Live() {
             <span className="live-dot">●</span>
             <span>{String((snap.session as any)?.Meeting?.Name ?? '')} · {String((snap.session as any)?.Name ?? '')}</span>
             <span className="live-label">{snap.label}</span>
+            {snap.session_part != null && (
+              <span className="quali-clock inline">
+                {[1, 2, 3].map(p => (
+                  <span key={p}
+                    className={`q-part ${p === snap.session_part ? 'active' : ''} ${p < (snap.session_part ?? 0) ? 'done' : ''}`}>
+                    Q{p}
+                  </span>
+                ))}
+              </span>
+            )}
+            {remaining != null && (
+              <span className={`q-remaining ${snap.clock!.running ? '' : 'paused'}`}
+                title={snap.clock!.running ? 'tempo alla fine della sessione'
+                  : 'countdown fermo (sessione sospesa o non partita)'}>
+                {fmtRemaining(remaining)}
+              </span>
+            )}
             {snap.lap_count?.CurrentLap != null && (
               <span className="live-lapcount">
                 giro {snap.lap_count.CurrentLap}/{snap.lap_count.TotalLaps}
@@ -230,7 +274,7 @@ export default function Live() {
       </div>
 
       <div className="live-main">
-        <div className="tower">
+        <div className="tower" ref={towerRef}>
           <table>
             <thead>
               <tr>
@@ -243,8 +287,10 @@ export default function Live() {
             <tbody>
               {tower.map((r, i) => {
                 const bg = rowColor(r, i)
+                const f = fxProps(fx.get(r.num))
                 return [
-                  <tr key={`${r.num}-last`} className={`row-last ${r.retired ? 'out' : ''}`}>
+                  <tr key={`${r.num}-last`} style={f.style}
+                    className={`row-last ${r.retired ? 'out' : ''} ${f.cls}`}>
                     <td className="pos" rowSpan={2}>{r.pos || ''}</td>
                     <td rowSpan={2}>
                       <span className="tag" style={{ background: bg, color: contrastColor(bg) }}>
@@ -282,7 +328,8 @@ export default function Live() {
                       )}
                     </td>
                   </tr>,
-                  <tr key={`${r.num}-best`} className={`row-best ${r.retired ? 'out' : ''}`}>
+                  <tr key={`${r.num}-best`} style={f.style}
+                    className={`row-best ${r.retired ? 'out' : ''} ${f.cls}`}>
                     <td className="t-label">BEST</td>
                     <td className={`t-num ${r.best_ob ? 'lt-ob' : ''}`}>{r.best}</td>
                     <td className="t-num t-int">{r.gap}</td>

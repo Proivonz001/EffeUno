@@ -1,9 +1,11 @@
 import { useMemo } from 'react'
 import type { ReplayData } from './api'
 import { TyreIcon } from './Leaderboard'
+import { fxProps, useOvertakeFx } from './overtakeFx'
 import { teamColor } from './palette'
 import {
-  bestSectorsAt, contrastColor, lapTimesAt, sectorsAt, standingsQualiAt,
+  bestSectorsAt, contrastColor, lapTimesAt, qualiClockAt, sectorsAt,
+  standingsQualiAt,
 } from './replay'
 
 /** Torre per il replay di prove libere e qualifiche: stesso layout a
@@ -22,6 +24,12 @@ function fmtLap(s: number): string {
 
 const fmtSec = (s: number) => s.toFixed(3)
 
+/** countdown della manche: mm:ss */
+export function fmtRemaining(s: number): string {
+  const m = Math.floor(s / 60)
+  return `${m}:${String(Math.floor(s % 60)).padStart(2, '0')}`
+}
+
 export default function QualiTower({ replay, time }: Props) {
   const qt = Math.floor(time * 2) / 2
   const rows = useMemo(() => standingsQualiAt(replay, qt), [replay, qt])
@@ -32,9 +40,26 @@ export default function QualiTower({ replay, time }: Props) {
     () => new Map(replay.drivers.map((d, i) => [d.num, i])),
     [replay],
   )
+  const clock = qualiClockAt(replay, qt)
+  const { ref: towerRef, fx } = useOvertakeFx(
+    rows.map(r => r.driver.num), 2, replay)
 
   return (
-    <div className="leaderboard tower quali-tower">
+    <div className="leaderboard tower quali-tower" ref={towerRef}>
+      {clock && (
+        <div className="quali-clock">
+          {[1, 2, 3].map(p => (
+            <span key={p}
+              className={`q-part ${p === clock.part ? 'active' : ''} ${p < clock.part ? 'done' : ''}`}>
+              Q{p}
+            </span>
+          ))}
+          <span className={`q-remaining ${clock.paused ? 'paused' : ''}`}
+            title={clock.paused ? 'countdown fermo (tra le manche o bandiera rossa)' : 'tempo alla fine della manche'}>
+            {fmtRemaining(clock.remaining)}
+          </span>
+        </div>
+      )}
       <table>
         <thead>
           <tr>
@@ -50,8 +75,11 @@ export default function QualiTower({ replay, time }: Props) {
             const lt = lapTimes.get(r.driver.num)
             const cur = lastSecs.get(r.driver.num)
             const best = bestSecs.get(r.driver.num)
+            const f = fxProps(fx.get(r.driver.num))
+            const elimCls = r.elim ? 'q-elim' : ''
             return [
-              <tr key={`${r.driver.num}-last`} className="row-last">
+              <tr key={`${r.driver.num}-last`} style={f.style}
+                className={`row-last ${f.cls} ${elimCls}`}>
                 <td className="pos" rowSpan={2}>{r.pos}</td>
                 <td rowSpan={2}>
                   <span className="tag" style={{ background: bg, color: contrastColor(bg) }}>
@@ -84,12 +112,17 @@ export default function QualiTower({ replay, time }: Props) {
                   )}
                 </td>
               </tr>,
-              <tr key={`${r.driver.num}-best`} className="row-best">
+              <tr key={`${r.driver.num}-best`} style={f.style}
+                className={`row-best ${f.cls} ${elimCls}`}>
                 <td className="t-label">BEST</td>
                 <td className={`t-num ${lt?.fastest ? 'lt-ob' : ''}`}>
-                  {lt?.best != null ? fmtLap(lt.best) : ''}
+                  {r.qTime != null ? fmtLap(r.qTime)
+                    : lt?.best != null ? fmtLap(lt.best) : ''}
                 </td>
-                <td className="t-num t-int">{r.pos > 1 ? r.gapText : ''}</td>
+                <td className="t-num t-int">
+                  {r.elim ? <span className="elim-tag">ELIM Q{r.elim}</span>
+                    : r.pos > 1 ? r.gapText : ''}
+                </td>
                 {[0, 1, 2].map(k => {
                   const s = best?.sectors[k]
                   return (

@@ -42,11 +42,33 @@ export interface ReplayDriver {
   tl: number[]
   /** penalita' dalla direzione gara: [t, etichetta] */
   penalties: [number, string][]
+  /** velocita' ai rilevamenti [giro, I1, I2, traguardo, speed trap] km/h */
+  traps?: [number, number | null, number | null, number | null, number | null][]
+  /** giri cancellati UFFICIALI (flag del feed): [t fine giro, giro, motivo] */
+  deleted?: [number, number, string][]
+  /** [giro, TrackStatus]: '1' verde; altri codici = giro sporco */
+  lap_status?: [number, string][]
+  /** risultato ufficiale: griglia, classifica, stato, punti, tempi Q1-3
+   *  (q2 null in qualifica = eliminato in Q1) */
+  result?: {
+    grid: number | null
+    finish: string | null
+    status: string | null
+    points: number
+    q1: number | null
+    q2: number | null
+    q3: number | null
+  } | null
 }
 
 export interface ReplayData {
   duration_s: number
   track: [number, number][]
+  /** curve numerate [x, y, etichetta, angolo] da get_circuit_info */
+  corners?: [number, number, string, number][]
+  /** postazioni marshal [x, y, numero settore, angolo]: geometria REALE
+   *  dei settori (il settore N va dalla postazione N alla N+1) */
+  marshal_sectors?: [number, number, string, number][]
   /** traversata reale della pit lane (ingresso -> box -> uscita) */
   pit_lane: [number, number][]
   /** confini S1/S2 e S2/S3 sul giro di riferimento */
@@ -60,6 +82,16 @@ export interface ReplayData {
   sector_flags: [number, number, number][]
   /** [t, codice]: 1 verde, 2 gialla, 4 SC, 5 rossa, 6 VSC, 7 VSC in rientro */
   track_status: [number, number][]
+  /** manche di qualifica (vuoto/assente nelle altre sessioni e nei dati
+   *  pubblicati prima di questo campo): pause = bandiere rosse (countdown
+   *  fermo), duration = durata regolamentare in secondi */
+  quali_segments?: {
+    part: number
+    start: number
+    end: number | null
+    pauses: [number, number | null][]
+    duration: number
+  }[]
   drivers: ReplayDriver[]
 }
 
@@ -90,6 +122,10 @@ export interface LapInfo {
   time_s: number | null
   compound: string | null
   accurate: boolean
+  /** TrackStatus del giro ('1' = tutto verde) */
+  status?: string
+  /** giro cancellato (flag ufficiale) */
+  deleted?: boolean
 }
 
 export interface LapTelemetry {
@@ -102,6 +138,10 @@ export interface LapTelemetry {
   throttle: number[]
   brake: boolean[]
   gear: number[]
+  /** regime motore (assente nei dati pubblicati prima del 2026-07-20) */
+  rpm?: number[]
+  /** canale DRS grezzo (solo stagioni ≤2025: 10/12/14 = ala aperta) */
+  drs?: number[]
   x: number[]
   y: number[]
 }
