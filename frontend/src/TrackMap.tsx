@@ -117,8 +117,38 @@ export default function TrackMap({ replay, time, focus, onFocus, wind }: Props) 
     }
     let drag: { x: number; y: number } | null = null
     let moved = 0
-    const onDown = (e: PointerEvent) => { drag = { x: e.clientX, y: e.clientY }; moved = 0 }
+    // dita attive sul canvas: con due si pizzica per lo zoom
+    const pointers = new Map<number, { x: number; y: number }>()
+    const onDown = (e: PointerEvent) => {
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      if (pointers.size === 1) { drag = { x: e.clientX, y: e.clientY }; moved = 0 }
+      else drag = null // seconda dita: si passa al pinch
+    }
     const onMove = (e: PointerEvent) => {
+      if (pointers.has(e.pointerId) && pointers.size === 2) {
+        const other = [...pointers.entries()].find(([id]) => id !== e.pointerId)![1]
+        const prev = pointers.get(e.pointerId)!
+        const d0 = Math.hypot(prev.x - other.x, prev.y - other.y)
+        const d1 = Math.hypot(e.clientX - other.x, e.clientY - other.y)
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+        moved += 10 // il pinch non e' mai un click
+        if (d0 <= 0) return
+        // stesso schema dello zoom a rotellina, centrato sul punto medio
+        const rect = canvas.getBoundingClientRect()
+        const mx = ((e.clientX + other.x) / 2 - rect.left) * devicePixelRatio
+        const my = ((e.clientY + other.y) / 2 - rect.top) * devicePixelRatio
+        const v = viewRef.current
+        const z = Math.min(25, Math.max(1, v.z * (d1 / d0)))
+        const applied = z / v.z
+        v.px = mx - applied * (mx - v.px)
+        v.py = my - applied * (my - v.py)
+        v.z = z
+        if (z <= 1.01) { v.z = 1; v.px = 0; v.py = 0 }
+        return
+      }
+      if (pointers.has(e.pointerId)) {
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      }
       if (!drag) return
       const v = viewRef.current
       moved += Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y)
@@ -126,7 +156,10 @@ export default function TrackMap({ replay, time, focus, onFocus, wind }: Props) 
       v.py += (e.clientY - drag.y) * devicePixelRatio
       drag = { x: e.clientX, y: e.clientY }
     }
-    const onUp = () => { drag = null }
+    const onUp = (e: PointerEvent) => {
+      pointers.delete(e.pointerId)
+      drag = null
+    }
     // click (non trascinamento) su un pallino: focus sul pilota
     const onClick = (e: MouseEvent) => {
       if (moved > 4) return
@@ -141,6 +174,7 @@ export default function TrackMap({ replay, time, focus, onFocus, wind }: Props) 
     canvas.addEventListener('pointerdown', onDown)
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
     canvas.addEventListener('dblclick', onDbl)
     canvas.addEventListener('click', onClick)
 
@@ -439,6 +473,7 @@ export default function TrackMap({ replay, time, focus, onFocus, wind }: Props) 
       canvas.removeEventListener('pointerdown', onDown)
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
       canvas.removeEventListener('dblclick', onDbl)
       canvas.removeEventListener('click', onClick)
     }

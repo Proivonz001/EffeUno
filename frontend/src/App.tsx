@@ -27,6 +27,30 @@ const SESSION_LABELS: Record<SessionCode, string> = {
 /** sessioni con la torre qualifiche (e senza i grafici di gara) */
 const isQuali = (s: SessionCode) => s === 'Q' || s === 'SQ'
 
+/** telefono/tablet stretto: l'app diventa a schede (barra in basso) */
+function useIsMobile(): boolean {
+  const [mobile, setMobile] = useState(
+    () => window.matchMedia('(max-width: 820px)').matches)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 820px)')
+    const on = () => setMobile(mq.matches)
+    mq.addEventListener('change', on)
+    // alcuni ambienti (viewport emulati) non emettono il change: resize copre
+    window.addEventListener('resize', on)
+    return () => {
+      mq.removeEventListener('change', on)
+      window.removeEventListener('resize', on)
+    }
+  }, [])
+  return mobile
+}
+
+type MobilePanel = 'classifica' | 'mappa' | 'feed' | 'grafici' | 'giri'
+const PANEL_LABELS: Record<MobilePanel, string> = {
+  classifica: 'Classifica', mappa: 'Mappa', feed: 'Feed',
+  grafici: 'Grafici', giri: 'Giri',
+}
+
 /** icona meteo: sole quando e' asciutto, nuvola con gocce quando piove */
 function WeatherIcon({ rain }: { rain: boolean }) {
   return rain ? (
@@ -79,6 +103,9 @@ export default function App() {
   // vista LIVE: separata dal replay, solo in modalita' personale (backend)
   const [view, setView] = useState<'archive' | 'live'>('archive')
   const canLive = !SITE && !DEMO
+  // telefono: un pannello alla volta con barra in basso
+  const isMobile = useIsMobile()
+  const [panel, setPanel] = useState<MobilePanel>('classifica')
 
   const [time, setTime] = useState(0)
   const [playing, setPlaying] = useState(true)
@@ -114,6 +141,7 @@ export default function App() {
       setLoaded({ year, event, session })
       setFocus(null)
       setTime(0)
+      setPanel('classifica')
       setPhase('ready')
     } catch (e) {
       setError(String(e))
@@ -195,7 +223,7 @@ export default function App() {
         <button onClick={load} disabled={phase === 'loading'}>
           {phase === 'loading' ? `Caricamento… ${loadingFor.toFixed(0)}s` : 'Carica'}
         </button>
-        {replay && loaded && (
+        {replay && loaded && !isMobile && (
           <nav className="tabs">
             <button className={tab === 'replay' ? 'active' : ''} onClick={() => setTab('replay')}>
               Replay
@@ -210,7 +238,8 @@ export default function App() {
             </button>
           </nav>
         )}
-        {replay && tab === 'replay' && (
+        {replay && tab === 'replay' &&
+          (!isMobile || panel === 'classifica' || panel === 'mappa' || panel === 'feed') && (
           <>
             <button onClick={() => setPlaying(p => !p)}>
               {playing ? '⏸' : '▶'}
@@ -257,7 +286,7 @@ export default function App() {
         <p className="hint">Scegli stagione e gara, poi premi «Carica gara». Il primo
           caricamento scarica i dati via FastF1 e può richiedere qualche decina di secondi.</p>
       )}
-      {replay && loaded && tab === 'replay' && (
+      {replay && loaded && !isMobile && tab === 'replay' && (
         <div className="main">
           {isQuali(loaded.session) ? (
             <QualiTower replay={replay} time={time} />
@@ -274,11 +303,50 @@ export default function App() {
           {feedData && <Feed feed={feedData} replay={replay} time={time} focus={focus} />}
         </div>
       )}
-      {replay && loaded && tab === 'charts' && (
+      {replay && loaded && !isMobile && tab === 'charts' && (
         <Charts key={`${loaded.year}-${loaded.event}-${loaded.session}`} replay={replay} />
       )}
-      {replay && loaded && tab === 'compare' && (
+      {replay && loaded && !isMobile && tab === 'compare' && (
         <Compare year={loaded.year} event={loaded.event} session={loaded.session} />
+      )}
+      {replay && loaded && isMobile && (
+        <>
+          <div className="m-panel">
+            {panel === 'classifica' && (isQuali(loaded.session) ? (
+              <QualiTower replay={replay} time={time} />
+            ) : (
+              <Leaderboard
+                replay={replay} time={time} mode="race"
+                focus={focus} onFocus={setFocus}
+              />
+            ))}
+            {panel === 'mappa' && (
+              <TrackMap
+                replay={replay} time={time} focus={focus} onFocus={setFocus}
+                wind={wx ? [wx[4], wx[5]] : null}
+              />
+            )}
+            {panel === 'feed' && (feedData
+              ? <Feed feed={feedData} replay={replay} time={time} focus={focus} />
+              : <p className="hint">Feed non disponibile.</p>)}
+            {panel === 'grafici' && (
+              <Charts key={`${loaded.year}-${loaded.event}-${loaded.session}`} replay={replay} />
+            )}
+            {panel === 'giri' && (
+              <Compare year={loaded.year} event={loaded.event} session={loaded.session} />
+            )}
+          </div>
+          <nav className="m-nav">
+            {(['classifica', 'mappa', 'feed',
+              ...(isQuali(loaded.session) ? [] : ['grafici']), 'giri'] as MobilePanel[])
+              .map(p => (
+                <button key={p} className={panel === p ? 'active' : ''}
+                  onClick={() => setPanel(p)}>
+                  {PANEL_LABELS[p]}
+                </button>
+              ))}
+          </nav>
+        </>
       )}
       </>}
       {SITE && (
