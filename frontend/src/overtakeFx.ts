@@ -12,7 +12,7 @@ export interface OvertakeFx {
   slide: number
 }
 
-const FX_MS = 1250
+const FX_MS = 1000
 
 /**
  * @param order chiavi (numero pilota) nell'ordine di visualizzazione corrente
