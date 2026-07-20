@@ -20,10 +20,12 @@ const YEARS = Array.from(
 )
 const SPEEDS = [1, 2, 5, 10, 30]
 
-type SessionCode = 'R' | 'S' | 'Q'
+type SessionCode = 'R' | 'S' | 'SQ' | 'Q'
 const SESSION_LABELS: Record<SessionCode, string> = {
-  R: 'Gara', S: 'Sprint', Q: 'Qualifica',
+  R: 'Gara', S: 'Sprint', SQ: 'Qualifica Sprint', Q: 'Qualifica',
 }
+/** sessioni con la torre qualifiche (e senza i grafici di gara) */
+const isQuali = (s: SessionCode) => s === 'Q' || s === 'SQ'
 
 /** icona meteo: sole quando e' asciutto, nuvola con gocce quando piove */
 function WeatherIcon({ rain }: { rain: boolean }) {
@@ -143,7 +145,7 @@ export default function App() {
   // il weekend selezionato ha la Sprint?
   const hasSprint = events.find(e => e.name === event)?.format.includes('sprint') ?? false
   useEffect(() => {
-    if (!hasSprint && session === 'S') setSession('R')
+    if (!hasSprint && (session === 'S' || session === 'SQ')) setSession('R')
   }, [hasSprint, session])
 
   // campione meteo piu' recente al tempo del replay
@@ -186,7 +188,7 @@ export default function App() {
           ))}
         </select>
         <select value={session} onChange={e => setSession(e.target.value as SessionCode)}>
-          {(['R', ...(hasSprint ? ['S'] : []), 'Q'] as SessionCode[]).map(s => (
+          {(['R', ...(hasSprint ? ['S', 'SQ'] : []), 'Q'] as SessionCode[]).map(s => (
             <option key={s} value={s}>{SESSION_LABELS[s]}</option>
           ))}
         </select>
@@ -198,7 +200,7 @@ export default function App() {
             <button className={tab === 'replay' ? 'active' : ''} onClick={() => setTab('replay')}>
               Replay
             </button>
-            {loaded.session !== 'Q' && (
+            {!isQuali(loaded.session) && (
               <button className={tab === 'charts' ? 'active' : ''} onClick={() => setTab('charts')}>
                 Grafici
               </button>
@@ -257,7 +259,7 @@ export default function App() {
       )}
       {replay && loaded && tab === 'replay' && (
         <div className="main">
-          {loaded.session === 'Q' ? (
+          {isQuali(loaded.session) ? (
             <QualiTower replay={replay} time={time} />
           ) : (
             <Leaderboard
