@@ -440,8 +440,26 @@ class FastF1Session(LoadedSession):
                     "result": results.get(num),
                 })
 
+        # giro di riferimento per nastro/settori: il piu' veloce, ma in
+        # sessioni degeneri (Spa 2021: 3 giri dietro SC) pick_fastest e'
+        # None — si ripiega sul primo giro con telemetria utilizzabile
         ref_lap = s.laps.pick_fastest()
-        tel = ref_lap.get_telemetry().add_distance()
+        tel = None
+        if ref_lap is not None:
+            try:
+                tel = ref_lap.get_telemetry().add_distance()
+            except Exception:
+                tel = None
+        if tel is None:
+            for _, cand in s.laps.sort_values("LapTime").iterlaps():
+                try:
+                    tel = cand.get_telemetry().add_distance()
+                    ref_lap = cand
+                    break
+                except Exception:
+                    continue
+        if tel is None or len(tel) < 2:
+            raise ValueError("nessun giro con telemetria: sessione non replayabile")
         track = [[round(x, 1), round(y, 1)] for x, y in zip(tel["X"], tel["Y"])]
 
         # stato pista: 1 verde, 2 gialla, 4 SC, 5 rossa, 6 VSC, 7 VSC in rientro
@@ -613,6 +631,13 @@ class FastF1Source(DataSource):
         ]
 
     def load_session(self, year: int, event: str, session: str) -> LoadedSession:
-        s = fastf1.get_session(year, event, session)
+        try:
+            s = fastf1.get_session(year, event, session)
+        except ValueError:
+            if session != "SQ":
+                raise
+            # nel 2023 la manche sprint si chiamava "Sprint Shootout" e
+            # FastF1 non la riconosce col codice SQ: stesso formato, altro nome
+            s = fastf1.get_session(year, event, "Sprint Shootout")
         s.load()
         return FastF1Session(s)
