@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from backend.app.sources.fastf1_source import DataUnavailable  # noqa: E402
 from publish_session import DATA_VERSION, fetch_remote_catalog, publish  # noqa: E402
 
 CACHE_DIR = ROOT / "fastf1_cache"
@@ -65,7 +66,7 @@ def main() -> int:
     fastf1.Cache.enable_cache(str(CACHE_DIR))
 
     to_r2 = not args.no_r2
-    done = failed = skipped = 0
+    done = failed = skipped = unavailable = 0
     for year in range(args.from_year, args.to_year - 1, -1):
         try:
             sched = fastf1.get_event_schedule(year, include_testing=False)
@@ -94,12 +95,18 @@ def main() -> int:
                           f"(fatte {done}, saltate {skipped}, errori {failed})")
                 except KeyboardInterrupt:
                     raise
+                except DataUnavailable as exc:
+                    # non e' un errore nostro e non ha senso riprovarci:
+                    # quella sessione non esiste nell'archivio F1
+                    unavailable += 1
+                    print(f"== NON DISPONIBILE {rel}: {exc}")
                 except Exception as exc:
                     failed += 1
                     print(f"== ERRORE {rel}: {type(exc).__name__}: {str(exc)[:140]}")
                 time.sleep(args.pause)
             prune_cache(args.cache_gb)
-    print(f"backfill completo: {done} pubblicate, {skipped} saltate, {failed} errori")
+    print(f"backfill completo: {done} pubblicate, {skipped} saltate, "
+          f"{unavailable} non disponibili a monte, {failed} errori")
     return 0
 
 

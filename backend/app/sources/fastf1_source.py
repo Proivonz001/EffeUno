@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import fastf1
+import fastf1.exceptions
 import numpy as np
 import pandas as pd
 
@@ -21,6 +22,12 @@ MAX_PLAUSIBLE_JUMP = 1200  # 120 m
 
 COMPOUND_LETTER = {"SOFT": "S", "MEDIUM": "M", "HARD": "H",
                    "INTERMEDIATE": "I", "WET": "W"}
+
+
+class DataUnavailable(Exception):
+    """La sessione non e' replayabile perche' i dati non esistono a monte
+    (archivio F1 incompleto), non per un problema nostro. Chi pubblica la
+    distingue dagli errori veri: non c'e' niente da riprovare."""
 
 
 def _clean(v: Any) -> Any:
@@ -390,6 +397,15 @@ class FastF1Session(LoadedSession):
         s = self._s
         drivers = []
         duration = 0.0
+        # Alcune sessioni del 2018 (Australia, Bahrain, Monza) non hanno mai
+        # avuto le posizioni X/Y nell'archivio F1: verificato ri-scaricando
+        # da zero, pos_data e' vuoto. Senza traiettorie non c'e' replay, ed
+        # e' un limite a monte, non un errore nostro: va detto subito, prima
+        # di toccare campi che in quelle sessioni sono a loro volta vuoti.
+        if not any(pos is not None and not pos.empty
+                   for pos in (s.pos_data or {}).values()):
+            raise DataUnavailable(
+                "F1 non ha pubblicato i dati di posizione per questa sessione")
         tl_events, penalties = self._race_control()
         results = self._results()
         for num in s.drivers:
@@ -640,4 +656,13 @@ class FastF1Source(DataSource):
             # FastF1 non la riconosce col codice SQ: stesso formato, altro nome
             s = fastf1.get_session(year, event, "Sprint Shootout")
         s.load()
+        # nelle sessioni 2018 con archivio incompleto il load "riesce" ma
+        # lascia fuori timing o telemetria: meglio dirlo qui che schiantarsi
+        # piu' avanti con un DataNotLoadedError incomprensibile
+        try:
+            if s.laps is None or s.laps.empty:
+                raise DataUnavailable("nessun dato di giro nell'archivio F1")
+        except fastf1.exceptions.DataNotLoadedError as exc:
+            raise DataUnavailable(
+                "archivio F1 incompleto per questa sessione") from exc
         return FastF1Session(s)
